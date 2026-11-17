@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pipeline</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+  <script src="/timing.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header data-icon="▶" data-tone="red">
+    <h1>Pipeline</h1>
+    <p class="hidden sm:block">Upload a video below, or drop one in a channel's inbox folder. Everything else runs from here.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-6"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/pipeline.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/pipeline.js";
+    mount(document.getElementById("block"));
+    // The header line is neutral in the markup; this fills in this hub's own words (from /api/hub/settings).
+    import { channels, inboxOf } from "/hubinfo.js";
+    if (channels.length) document.querySelector("header p").innerHTML = `Upload a video below, or drop one in ${channels.map((c) => `<code>${inboxOf(c).replace(/[<>&"]/g, "")}</code>`).join(" or ")}. Everything else runs from here.`;
+  </script>
+</body>
+</html>

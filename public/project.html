@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+</head>
+<body class="min-h-screen">
+  <header data-icon="◔" data-tone="slate-800">
+    <h1>Project</h1>
+    <p>How much of the hub is built, how far in we are, how the to-do has grown, and what it replaces.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-5"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/project.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/project.js";
+    mount(document.getElementById("block"));
+  </script>
+</body>
+</html>

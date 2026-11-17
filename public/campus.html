@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en" data-nav-solo>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Campus</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+  <style>
+    /* The campus fills the page under the header; the details panel slides over it (right on desktop, bottom on phones). */
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 40%, #1d2a3a 0%, #121a24 55%, #0b1017 100%); touch-action: none; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    canvas.dragging { cursor: grabbing; }
+    /* Layout fixes (2026-11-09): the top pills stay on one row and scroll sideways on phones (they used to wrap onto
+       the filter chips), and the HUD sits above the 3D building names (z-index 3) but under the side panel (6). */
+    .hud { position: absolute; left: 12px; right: 12px; top: 12px; display: flex; gap: 8px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; pointer-events: auto; touch-action: pan-x; z-index: 3; }
+    .hud::-webkit-scrollbar { display: none; }
+    .hud > * { flex: none; }
+    .pill { pointer-events: auto; background: rgba(15, 18, 24, 0.82); border: 1px solid rgba(255, 255, 255, 0.12); color: #e9e4d8; border-radius: 999px; padding: 5px 12px; font-size: 13px; backdrop-filter: blur(6px); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    button.pill { cursor: pointer; }
+    #panel { position: absolute; z-index: 6; top: 0; right: 0; bottom: 0; width: min(var(--pw, 380px), 100%); background: rgb(16, 19, 26); border-left: 1px solid rgba(255, 255, 255, 0.1); color: #e9e4d8; transform: translateX(105%); transition: transform 0.22s ease; overflow-y: auto; overscroll-behavior: contain; padding: 16px; isolation: isolate; contain: paint; } /* no backdrop blur: over the live 3D canvas it left smeared tiles while a long panel (the Mart) scrolled */
+    #panel.open { transform: none; }
+    /* Drag to resize the panel (the owner 2026-11-09): its left edge on a wide screen, the bar on top on a phone. */
+    #pgrip { display: none; position: absolute; z-index: 7; top: 0; bottom: 0; right: calc(min(var(--pw, 380px), 100%) - 5px); width: 10px; cursor: ew-resize; touch-action: none; }
+    #pgrip::after { content: ""; position: absolute; left: 3px; top: 50%; width: 4px; height: 44px; margin-top: -22px; border-radius: 4px; background: rgba(255, 255, 255, 0.28); }
+    #panel.open + #pgrip { display: block; }
+    @media (max-width: 640px) {
+      #pgrip { top: auto; right: auto; left: 50%; width: 90px; margin-left: -45px; height: 26px; bottom: calc(var(--ph, 62%) - 18px); cursor: ns-resize; }
+      #pgrip::after { left: 25px; top: 9px; width: 40px; height: 5px; margin-top: 0; }
+    }
+    @media (max-width: 640px) {
+      #panel { top: auto; left: 0; width: 100%; height: var(--ph, 62%); border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px 14px 0 0; transform: translateY(105%); }
+    }
+    #panel h2 { font-size: 18px; font-weight: 600; }
+    #panel .sub { color: #a8a294; font-size: 13px; }
+    #panel .row { border-top: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 0; font-size: 14px; }
+    #panel .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.2); color: #cfc9bb; }
+    /* The key to the little signs: hidden until the ? button by the camera buttons opens it, as a card above them. */
+    #help { position: absolute; left: 12px; bottom: 96px; width: min(420px, calc(100% - 24px)); display: none; font-size: 12.5px; line-height: 1.5; color: #e9e4d8; background: rgba(15, 18, 24, 0.92); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px 12px; pointer-events: none; z-index: 4; }
+    #help.show { display: block; }
+    .live-row { margin-top: 4px; line-height: 1.9; }
+    .live-chip { border-color: rgba(125,220,138,0.35); }
+    .live-fresh { border-color: #7ddc8a; box-shadow: 0 0 0 0 rgba(125,220,138,0.6); animation: livePulse 1.6s ease-out infinite; }
+    .live-bad { border-color: #e05d5d; color: #ffb3b3; }
+    .live-bar { display: inline-block; vertical-align: middle; width: 80px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; margin-left: 6px; }
+    .live-bar > span { display: block; height: 100%; }
+    @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(125,220,138,0.55); } 100% { box-shadow: 0 0 0 7px rgba(125,220,138,0); } }
+    @media (prefers-reduced-motion: reduce) { .live-fresh { animation: none; } }
+    .pform label { display: block; margin-top: 10px; font-size: 13px; color: #c8cedb; }
+    .pform input[type=text], .pform textarea, .pform select { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 9px 10px; font: inherit; font-size: 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.25); color: inherit; }
+    .pform .opt { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; cursor: pointer; }
+    .pform .opt input { margin-top: 3px; }
+    /* the Full feed by job (control.js feedPanel) and the brain view's job blocks (brain.js) */
+    .feed-job { border-top: 1px solid rgba(255,255,255,0.1); padding: 8px 0; }
+    .feed-job > summary { cursor: pointer; list-style: none; }
+    .feed-job > summary::-webkit-details-marker { display: none; }
+    .feed-job > summary::before { content: "▸ "; color: #8b93a3; }
+    .feed-job[open] > summary::before { content: "▾ "; }
+    .feed-step { padding: 3px 0 3px 14px; font-size: 13px; }
+    .feed-step.bad { color: #ffb3b3; }
+    /* Brain view: zoom into one worker (brain.js) */
+    #brain { position: absolute; inset: 0; z-index: 40; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 35%, #16233a 0%, #0b101a 70%); opacity: 0; pointer-events: none; transform: scale(0.2); transition: transform 0.38s cubic-bezier(.2,.8,.2,1), opacity 0.25s ease; }
+    #brain.open { opacity: 1; pointer-events: auto; transform: scale(1); }
+    .brain-top { display: flex; gap: 10px; align-items: center; padding: 10px 12px 4px; }
+    .brain-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #brainC { width: 100%; flex: 0 0 46%; min-height: 240px; display: block; }
+    .brain-state { padding: 2px 14px 8px; }
+    .brain-feed { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 0 14px 18px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 13px; }
+    .brain-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .brain-row.bad { color: #ffb3b3; }
+    .brain-row.mark { color: #9cc7ff; }
+    .brain-time { flex: 0 0 auto; color: #8b93a3; font-variant-numeric: tabular-nums; }
+    @media (prefers-reduced-motion: reduce) { #brain { transition: opacity 0.2s ease; transform: none; } }
+    /* Neural view: one job's tree of work (neural.js); shares the brain view's look */
+    #neural { position: absolute; inset: 0; z-index: 41; display: flex; flex-direction: column; background: radial-gradient(ellipse at 50% 35%, #1a1f3a 0%, #0b0e1a 70%); opacity: 0; pointer-events: none; transform: scale(0.2); transition: transform 0.38s cubic-bezier(.2,.8,.2,1), opacity 0.25s ease; }
+    #neural.open { opacity: 1; pointer-events: auto; transform: scale(1); }
+    #neural .brain-who { flex: 1 1 auto; }
+    .neural-bar { padding: 0 12px 2px; }
+    .neural-bar select { width: 100%; max-width: 560px; background: #141a26; color: #dfe6f2; border: 1px solid rgba(160,200,255,0.3); border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+    #neuralC { width: 100%; flex: 0 0 50%; min-height: 250px; display: block; cursor: pointer; touch-action: none; }
+    .neural-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .neural-modes { display: flex; gap: 4px; }
+    .neural-modes .pill.on { background: #dfe6f2; color: #11141b; font-weight: 700; }
+    .neural-modes .pill.on::before { content: "● "; }
+    .neural-bar > select { flex: 1 1 200px; width: auto; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+    #neural > .brain-top, #neural > .neural-bar, #neural > .neural-crumbs { flex: 0 0 auto; }
+    #neural .neural-bar { padding-right: 12px; }
+    .neural-webopts { display: inline-flex; gap: 8px; align-items: center; }
+    .neural-webopts select { width: auto; }
+    .neural-mini { padding: 1px 8px; font-size: 11px; margin-left: 4px; }
+    .neural-hop { padding: 8px 0 2px; border-top: 1px solid rgba(255,255,255,0.12); }
+    .neural-link { cursor: pointer; }
+    .neural-link:hover, .neural-link:focus { background: rgba(255,255,255,0.05); outline: none; }
+    .neural-crumbs { display: flex; gap: 4px; align-items: center; overflow-x: auto; white-space: nowrap; padding: 4px 12px 0; scrollbar-width: none; font-size: 12px; }
+    .neural-crumbs::-webkit-scrollbar { display: none; }
+    .neural-crumbs .pill { padding: 2px 9px; font-size: 12px; flex: 0 0 auto; }
+    .neural-crumbs .sep { color: #8b93a3; flex: 0 0 auto; }
+    .neural-crumbs .here { font-weight: 700; color: #f0f3f8; flex: 0 0 auto; }
+    /* parts switched off on this hub (boot.js adds the classes) */
+    .mod-off-neural [data-neural], .mod-off-neural #brainNeural { display: none !important; }
+    .neural-head { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); overflow-wrap: anywhere; }
+    @media (prefers-reduced-motion: reduce) { #neural { transition: opacity 0.2s ease; transform: none; } }
+    /* Neural replay: play a job tree back in time order (neuralreplay.js) */
+    #nrpBtn.on { background: #dfe6f2; color: #11141b; font-weight: 700; }
+    .nrp-bar { flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; padding: 4px 12px 0; }
+    .nrp-bar[hidden] { display: none; }
+    #neural.nrp-on #neuralC { flex-basis: 40%; min-height: 220px; }
+    .nrp-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .nrp-row .pill { padding: 3px 9px; font-size: 12px; }
+    .nrp-row select { background: #141a26; color: #dfe6f2; border: 1px solid rgba(160,200,255,0.3); border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+    #nrpRange { width: 100%; margin: 2px 0 0; accent-color: #dfe6f2; }
+    .nrp-clock { font-size: 12px; color: #dfe6f2; font-variant-numeric: tabular-nums; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    [data-nrp] { cursor: pointer; }
+    .brain-row.nrp-later { opacity: 0.4; }
+    .brain-row.nrp-now { font-weight: 700; background: rgba(255,255,255,0.08); box-shadow: inset 3px 0 0 #fff; padding-left: 6px; }
+    .brain-row.nrp-now .brain-time::before { content: "▶ "; }
+    .nrp-gap { padding: 4px 0; color: #8b93a3; font-style: italic; text-align: center; border-bottom: 1px dashed rgba(255,255,255,0.15); font-size: 12px; }
+    #toast { position: absolute; z-index: 80; left: 50%; top: 56px; transform: translateX(-50%); max-width: calc(100vw - 24px); width: max-content; white-space: normal; text-align: center; border-radius: 14px; }
+    /* the control layer (public/campus/control.js) */
+    .ctl-chips { position: absolute; z-index: 3; left: 12px; right: 12px; top: 54px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; pointer-events: auto; touch-action: pan-x; }
+    .ctl-chips::-webkit-scrollbar { display: none; }
+    .ctl-chip { flex: none; font-size: 12px; padding: 4px 10px; }
+    .ctl-chip.on { background: #f3d9a4; color: #1b1f27; }
+    .ctl-chip b { margin-left: 3px; font-weight: 700; }
+    .ctl-card { position: absolute; top: 92px; width: min(300px, calc(50vw - 18px)); max-height: calc(100% - 170px); display: flex; flex-direction: column; background: rgba(15, 18, 24, 0.88); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; color: #e9e4d8; font-size: 12.5px; backdrop-filter: blur(6px); z-index: 2; }
+    .ctl-left { left: 12px; } .ctl-right { right: 12px; }
+    .ctl-card.alert { border-color: rgba(224, 93, 141, 0.7); }
+    .ctl-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; font-weight: 600; }
+    .ctl-min { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; width: 22px; height: 22px; line-height: 18px; color: #cfc9bb; }
+    .ctl-body { overflow-y: auto; padding: 0 10px 10px; }
+    .ctl-item { display: block; width: 100%; text-align: left; border-top: 1px solid rgba(255, 255, 255, 0.08); padding: 7px 0; }
+    .ctl-row { cursor: pointer; } .ctl-row:hover { background: rgba(255, 255, 255, 0.04); }
+    .ctl-meta { color: #a8a294; font-size: 11.5px; display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+    .ctl-meta .late { color: #f0a0b8; }
+    .ctl-text { margin-top: 2px; } .ctl-sub { color: #a8a294; font-size: 11.5px; margin-top: 2px; }
+    .ctl-btns { display: flex; gap: 6px; margin-top: 6px; }
+    .ctl-btn { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: #e9e4d8; background: rgba(255, 255, 255, 0.04); }
+    .ctl-btn.yes { background: #c2477a; border-color: #c2477a; color: #fff; }
+    .ctl-askbox { display: flex; gap: 6px; margin-top: 6px; } .ctl-askbox input { flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 3px 8px; color: inherit; }
+    .ctl-batch { position: sticky; bottom: 0; background: rgba(15, 18, 24, 0.95); padding: 6px 0; display: flex; gap: 6px; align-items: center; }
+    .ctl-ticker { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: min(640px, calc(100% - 24px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(15, 18, 24, 0.88); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 999px; padding: 6px 8px 6px 14px; color: #e9e4d8; font-size: 12.5px; z-index: 2; }
+    .ctl-ticker .live { color: #ff5c8a; font-weight: 700; } .ctl-ticker .dim { color: #a8a294; font-weight: 700; }
+    #ctlSearch { width: 130px; outline: none; }
+    .ctl-find { position: absolute; z-index: 5; top: 54px; left: 12px; width: min(320px, calc(100% - 24px)); background: rgba(15, 18, 24, 0.96); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; padding: 6px; display: none; }
+    .ctl-find { max-height: min(55vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+    .ctl-ring { position: absolute; z-index: 4; border: 3px dashed #fff; border-radius: 50%; outline: 2px solid rgba(0, 0, 0, 0.55); pointer-events: none; animation: ctlring 0.9s ease-out 2; }
+    .ctl-ring.calm { animation: none; }
+    @keyframes ctlring { from { transform: scale(1.35); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+    .ctl-hit { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 8px; color: #e9e4d8; } .ctl-hit:hover { background: rgba(255, 255, 255, 0.06); }
+    .ctl-hit span { display: block; color: #a8a294; font-size: 11.5px; }
+    @media (max-width: 700px) { .ctl-card { top: 92px; width: calc(50vw - 18px); } .ctl-ticker { bottom: 8px; font-size: 11.5px; } #help { bottom: 88px; } }
+    .ctl-cam { position: absolute; left: 12px; bottom: 52px; display: flex; gap: 6px; z-index: 3; }
+    .ctl-cam .pill { width: 34px; height: 34px; padding: 0; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+    .ctl-floors { right: 12px; top: 54px; width: min(240px, calc(50vw - 18px)); }
+    .ctl-floor { position: relative; padding-left: 10px; }
+    .ctl-floor .band { position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 2px; }
+    .ctl-row.on { background: rgba(243, 217, 164, 0.12); }
+    @media (max-width: 700px) { .ctl-cam { bottom: 46px; } .ctl-floors { top: auto; bottom: 92px; max-height: 40%; } }
+    /* The side panel opens over the right edge: the floor list moves beside it instead of hiding under it. */
+    @media (min-width: 641px) { #stage:has(#panel.open) .ctl-floors:not(.strip) { right: calc(min(var(--pw, 380px), 100%) + 12px); } }
+    .ctl-floors.strip { top: auto; bottom: 92px; left: 12px; right: 12px; width: auto; max-height: none; flex-direction: row; gap: 6px; padding: 6px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+    .ctl-floors.strip::-webkit-scrollbar { display: none; }
+    .ctl-floors.strip .pill { flex: none; }
+    .sign3d { pointer-events: none; font: 700 12px system-ui, sans-serif; color: #f6efe0; background: rgba(36, 40, 50, 0.82); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .sign3d.small { font-size: 10px; padding: 2px 7px; }
+    .sign3d.district { background: rgba(255, 255, 255, 0.75); color: #2a2f38; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+    @media (max-width: 640px) { .sign3d { font-size: 10px; padding: 2px 7px; } }
+    /* A slim header (the owner 2026-11-09: "make the header smaller, it's so much screen"): one short row, the how-to
+       line moves into the ? key by the camera buttons. */
+    body > header > div { padding-top: 4px !important; padding-bottom: 4px !important; gap: 8px !important; }
+    body > header h1 { font-size: 15px !important; line-height: 1.2; }
+    body > header p { display: none; }
+    /* Collapsed menu (the owner 2026-11-09: "menu collapse, my space is running out"): only the ▾ button, the camera
+       buttons and the news bar stay; everything else hides until you tap ▾ again. */
+    body.hud-min .hud > :not(#hMin):not(#hBack):not(#hRooms):not(#hCmd), body.hud-min #ctlChips, body.hud-min #ctlWait, body.hud-min #ctlProg, body.hud-min #ctlFloors { display: none !important; }
+    #hMin { width: 32px; padding: 5px 0; text-align: center; }
+    body > header .w-9.h-9 { width: 26px; height: 26px; font-size: 13px; }
+    body > header a { padding: 2px 8px !important; font-size: 12px !important; }
+    /* Visual rehaul (2026-11-13, after towers.app's city): frosted glass over the live city, Geist for the interface,
+       Instrument Serif for titles, Geist Mono for small labels; light name tags on the buildings. Fonts fall back to
+       the system ones when offline. */
+    :root { --glass: rgba(26, 28, 34, 0.5); --glass-strong: rgba(22, 24, 30, 0.74); --line: rgba(255, 255, 255, 0.16); --ink: #f4f1ea; --ink-dim: #bdb7ab; }
+    #stage, #panel, #stage .pill, .ctl-card, .ctl-ticker, .sign3d { font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif; }
+    #stage .pill { background: var(--glass); border-color: var(--line); color: var(--ink); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); box-shadow: 0 4px 16px rgba(10, 14, 22, 0.14); }
+    #stage .pill:hover { background: rgba(36, 39, 47, 0.62); }
+    .ctl-chip.on { background: #f4f1ea !important; color: #1b1f27 !important; }
+    .ctl-card { background: var(--glass-strong); border-color: var(--line); border-radius: 18px; width: min(280px, calc(50vw - 18px)); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); box-shadow: 0 14px 40px rgba(8, 12, 20, 0.28); color: var(--ink); }
+    .ctl-card.alert { border-color: rgba(240, 120, 160, 0.75); box-shadow: 0 14px 40px rgba(8, 12, 20, 0.28), 0 0 0 1px rgba(240, 120, 160, 0.25) inset; }
+    .ctl-head { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 19px; letter-spacing: 0.005em; padding: 9px 12px 6px; }
+    .ctl-head b { font-weight: 400; }
+    .ctl-body { padding: 0 12px 12px; }
+    .ctl-meta { font-family: "Geist Mono", ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.02em; color: var(--ink-dim); }
+    .ctl-btn { border-color: rgba(255, 255, 255, 0.24); background: rgba(255, 255, 255, 0.06); padding: 3px 11px; }
+    .ctl-btn.yes { background: #f4f1ea; border-color: #f4f1ea; color: #1b1f27; font-weight: 600; }
+    .ctl-batch { background: transparent; }
+    .ctl-ticker { background: var(--glass-strong); border-color: var(--line); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 8px 24px rgba(8, 12, 20, 0.22); padding: 7px 8px 7px 16px; }
+    .ctl-ticker .dim { font-family: "Geist Mono", ui-monospace, monospace; font-weight: 500; letter-spacing: 0.08em; font-size: 10.5px; }
+    .ctl-cam .pill { width: 38px; height: 38px; }
+    #panel { background: rgb(20, 22, 28); color: var(--ink); }
+    /* Phone layering (the owner's recording 2026-11-16): an open panel is solid, and nothing inside it blurs what is behind.
+       The Mart alone had 77 pull-downs and buttons each with its own backdrop blur, re-blurring the live 3D city every
+       frame inside a scrolling list; on a phone GPU the list's tiles dropped out while scrolling (only the pull-downs
+       stayed drawn) and the campus's cards and signs showed through the holes. */
+    #panel .pill, .bsheet .pill, .prop-sheet .pill { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+    #panel .pill { background: rgb(34, 37, 45); }
+    #panel .pill:hover { background: rgb(44, 48, 58); }
+    /* On a phone an open panel and the cards never share the screen: the chips, Working / Waiting cards, camera
+       buttons, floor list and ticker hide until it closes (one rule for every panel), so nothing of the campus layer
+       draws over or blurs under it. The HUD row stays (it is under the panel, z 3 against 6). */
+    @media (max-width: 640px) {
+      #stage:has(#panel.open) :is(#ctlChips, #ctlWait, #ctlProg, #ctlCam, #ctlFloors, #ctlTicker) { display: none !important; }
+      /* Night readability: glass dark enough that the text on it stays 4.5:1 even over the brightest thing behind it
+         (a white sign or a lit window): ink needs 0.64 or more, the dim grey 0.79 or more. */
+      :root { --glass: rgba(26, 28, 34, 0.74); --glass-strong: rgba(22, 24, 30, 0.86); }
+      #stage .pill:hover { background: rgba(36, 39, 47, 0.8); }
+    }
+    #panel h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 28px; line-height: 1.1; letter-spacing: 0.005em; }
+    #panel .sub { color: var(--ink-dim); }
+    .sign3d { font-weight: 600; font-size: 12px; color: #1d2027; background: rgba(255, 255, 255, 0.88); border: 1px solid rgba(255, 255, 255, 0.7); padding: 4px 10px; box-shadow: 0 3px 12px rgba(10, 14, 22, 0.18); }
+    .sign3d.small { font-size: 10.5px; padding: 2px 8px; }
+    .sign3d.district { background: transparent; border: 0; box-shadow: none; color: rgba(255, 255, 255, 0.96); font: 500 10.5px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.2em; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35); }
+    @media (max-width: 700px) { .sign3d { font-size: 10.5px; padding: 3px 8px; } .ctl-head { font-size: 13px; font-family: "Geist", system-ui, sans-serif; font-weight: 600; padding: 8px 10px; gap: 6px; } .ctl-head > span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } } /* only the title is cut short; the +/− button always shows (the Working card wouldn't expand on a phone) */
+    /* Phone reading (the owner 2026-11-16: "I can't read these on mobile"): an opened card takes the full width and the other
+       one folds away until it is closed; text is bigger, taps are easier, a long title wraps onto two lines instead of
+       being cut off. A closed card is still the small button it was. */
+    @media (max-width: 700px) {
+      .ctl-head > span:first-child { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+      .ctl-card:has(.ctl-body) { left: 12px; right: 12px; width: auto; max-height: calc(100% - 190px); }
+      #stage:has(#ctlProg .ctl-body) #ctlWait:not(:has(.ctl-body)), #stage:has(#ctlWait .ctl-body) #ctlProg:not(:has(.ctl-body)) { display: none; }
+      .ctl-card .ctl-body { font-size: 14px; line-height: 1.35; padding: 0 12px 12px; }
+      .ctl-meta, .ctl-sub { font-size: 12.5px; }
+      /* messages (the hub's answers to a tap) sit above every card and sheet, at the bottom where nothing else is, and are solid and easy to read */
+      #toast { top: auto; bottom: 104px; font-size: 14px; line-height: 1.35; padding: 10px 14px; background: rgba(15, 18, 24, 0.97); color: #f4f1ea; border: 1px solid rgba(255, 255, 255, 0.25); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+      .ctl-item { padding: 10px 0; }
+      .ctl-btn { font-size: 13.5px; padding: 8px 14px; min-height: 40px; }
+      .ctl-min { width: 34px; height: 34px; line-height: 28px; font-size: 16px; }
+      .ctl-askbox input { font-size: 16px; padding: 8px 10px; }
+    }
+    .ctl-min { flex: none; } .ctl-head:has(.ctl-min) { cursor: pointer; }
+    /* Hub pages inside the view (campus/blocks.js, public/parts/): a wide sheet on a computer, full screen on a phone.
+       Under the yes/no box (z 50) and above the Neural view (41) and the menu (40). */
+    .bsheet { position: fixed; z-index: 45; top: 0; right: 0; bottom: 0; width: min(860px, 100%); display: flex; flex-direction: column; background: var(--page, #0f0f0e); color: var(--text-primary, #eee); border-left: 1px solid var(--line-strong, #3a3a37); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45); }
+    .bsheet[hidden] { display: none; }
+    .bsheet.bs-list { width: min(460px, 100%); }
+    .bs-top { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line-strong, #3a3a37); padding-top: max(10px, env(safe-area-inset-top)); }
+    .bs-top .pill { min-height: 36px; display: inline-flex; align-items: center; }
+    .bs-top [hidden] { display: none !important; }
+    .bs-head { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+    .bs-title { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bs-team { font-size: 12px; color: var(--text-muted, #a8a294); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bs-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 14px 40px; }
+    .bs-item { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--line-strong, #3a3a37); border-radius: 12px; margin-bottom: 8px; background: var(--surface-1, #1a1a19); color: inherit; }
+    .bs-item:hover, .bs-item:focus-visible { background: var(--surface-2, #242422); }
+    .bs-icon { width: 28px; font-size: 20px; text-align: center; flex: none; }
+    .bs-sub { display: block; color: var(--text-muted, #a8a294); font-size: 13px; margin-top: 2px; }
+    /* Glance props (campus/props.js): the queue board and the meter wall, in their building's panel and in Neural.
+       Every state is a word and a symbol; "over" is hatched as well as lighter, never colour alone. */
+    .prop { margin: 12px 0 4px; background: #15171c; border: 5px solid #2b2f38; border-radius: 14px; overflow: hidden; color: #f4f1ea; font-family: "Geist", system-ui, sans-serif; }
+    .prop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px 3px 12px; font: 500 11.5px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.22em; text-transform: uppercase; color: #f3c969; }
+    .prop-open { font: 500 12px "Geist", system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: #f4f1ea; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; padding: 4px 10px; min-height: 30px; background: none; }
+    .prop-line { padding: 4px 12px 8px; font: 500 12px "Geist Mono", ui-monospace, monospace; color: #f4f1ea; border-bottom: 1px solid rgba(255, 255, 255, 0.12); overflow-wrap: anywhere; }
+    .prop-empty, .prop-key { padding: 8px 12px 10px; font-size: 12px; color: #bdb7ab; }
+    .prop-more { display: block; width: 100%; padding: 8px 12px; text-align: left; font-size: 12.5px; color: #bdb7ab; background: none; border: 0; border-top: 1px dashed rgba(255, 255, 255, 0.12); text-decoration: underline; }
+    .pq-row { display: grid; grid-template-columns: 50px 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; min-height: 46px; padding: 5px 12px; text-align: left; background: none; border: 0; border-top: 1px dashed rgba(255, 255, 255, 0.12); color: inherit; font: 12.5px "Geist Mono", ui-monospace, monospace; cursor: pointer; }
+    .pq-row:hover, .pq-row:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; }
+    .pq-t { color: #f3c969; font-weight: 500; }
+    .pq-ch { font-size: 10.5px; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; text-align: center; padding: 1px 0; }
+    .pq-ti { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px "Geist", system-ui, sans-serif; }
+    .pq-st { font-size: 10.5px; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.35); white-space: nowrap; }
+    .pq-st.pq-you, .pq-st.pq-private { background: #f4f1ea; color: #15171c; font-weight: 600; }
+    .pq-st.pq-stuck { border-style: dashed; }
+    .pq-st.pq-up, .pq-st.pq-making { animation: pqBlink 1.2s steps(2) infinite; }
+    @keyframes pqBlink { 50% { opacity: 0.5; } } @media (prefers-reduced-motion: reduce) { .pq-st.pq-up, .pq-st.pq-making { animation: none; } }
+    .pm-wall { display: flex; gap: 8px; overflow-x: auto; padding: 10px 10px 2px; scrollbar-width: none; touch-action: pan-x; }
+    .pm-wall::-webkit-scrollbar { display: none; }
+    .pm-m { flex: 0 0 66px; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: 0; color: inherit; padding: 4px 0; border-radius: 10px; cursor: pointer; }
+    .pm-m:hover, .pm-m:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; }
+    .pm-m.big { flex-basis: 88px; }
+    .pm-tube { position: relative; width: 30px; height: 120px; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 15px; overflow: hidden; background: repeating-linear-gradient(0deg, transparent 0 13px, rgba(255, 255, 255, 0.08) 13px 14px); }
+    .pm-m.big .pm-tube { width: 46px; height: 140px; border-radius: 23px; }
+    .pm-fill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(#f4f1ea, #c9c3b6); }
+    .pm-fill.hatch { background: repeating-linear-gradient(45deg, #f4f1ea 0 5px, #8d877b 5px 9px); }
+    .pm-cap { position: absolute; left: 0; right: 0; border-top: 3px solid #fff; }
+    .pm-proj { position: absolute; left: -2px; right: -2px; height: 0; border-top: 2px dashed #fff; }
+    .pm-lab { font: 500 11px "Geist Mono", ui-monospace, monospace; max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pm-val { font: 11px "Geist Mono", ui-monospace, monospace; color: #bdb7ab; }
+    .pm-word { font: 600 11px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.04em; }
+    .pm-plan { padding: 6px 12px 0; font: 11px "Geist Mono", ui-monospace, monospace; color: #bdb7ab; }
+    .pm-note { margin: 0 12px 10px; font-size: 12px; color: #e8e3d8; }
+    .pm-note summary { cursor: pointer; padding: 6px 0; font: 500 12px "Geist Mono", ui-monospace, monospace; }
+    .pm-note div { white-space: pre-line; line-height: 1.45; max-height: 220px; overflow: auto; }
+    .prop-row { display: flex; gap: 6px; } .prop-row .prop-act { flex: 1; justify-content: center; }
+    #neural .prop { margin-top: 8px; }
+    /* what you can do with one item: a bottom sheet on a phone, a card on the right on a computer; over the Neural
+       view (41) and the page sheet (45), under the yes/no box (50) */
+    .prop-sheet { position: fixed; z-index: 47; left: 0; right: 0; bottom: 0; max-height: 78vh; overflow-y: auto; background: rgb(20, 22, 28); color: #f4f1ea; border-top: 1px solid rgba(255, 255, 255, 0.16); border-radius: 18px 18px 0 0; padding: 14px 14px max(16px, env(safe-area-inset-bottom)); transform: translateY(105%); transition: transform 0.24s cubic-bezier(.2, .8, .2, 1); font-family: "Geist", system-ui, sans-serif; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.45); }
+    .prop-sheet.open { transform: none; }
+    /* on the left on a computer: the building's panel (where the board is) is on the right */
+    @media (min-width: 700px) { .prop-sheet { right: auto; left: 16px; bottom: 16px; width: 380px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 18px; } }
+    @media (prefers-reduced-motion: reduce) { .prop-sheet { transition: none; } }
+    .prop-sheet h4 { margin: 0 34px 0 0; font: 400 23px/1.15 "Instrument Serif", Georgia, serif; }
+    .prop-sub { color: #bdb7ab; font-size: 13px; margin: 3px 0 8px; }
+    .prop-why { margin: 6px 0; padding: 8px 10px; border-left: 3px solid #f4f1ea; background: rgba(255, 255, 255, 0.05); font-size: 13px; border-radius: 6px; }
+    .prop-note { color: #bdb7ab; font-size: 12px; margin-top: 10px; }
+    .prop-act { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 8px; text-align: left; min-height: 46px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.045); color: inherit; font: inherit; cursor: pointer; }
+    .prop-act small { color: #bdb7ab; font-size: 11.5px; text-align: right; }
+    .prop-act.main { background: #f4f1ea; color: #1b1f27; font-weight: 600; } .prop-act.main small { color: #4b4f58; }
+    .prop-act:disabled { opacity: 0.6; }
+    .prop-num { width: 100%; margin-top: 4px; padding: 10px; font: 16px "Geist", system-ui, sans-serif; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.25); color: inherit; }
+    .prop-x { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.2); background: none; color: inherit; }
+    .bs-h3 { margin: 18px 0 2px; font-weight: 600; font-size: 15px; }
+    .bsheet.bs-campus .bs-h3 { font: 400 21px "Instrument Serif", Georgia, serif; }
+    .bs-group { margin: 12px 2px 4px; font: 500 10.5px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted, #a8a294); }
+    .bs-link { display: flex; gap: 10px; align-items: center; min-height: 40px; padding: 6px 10px; border-radius: 10px; color: inherit; text-decoration: none; }
+    .bs-link:hover, .bs-link:focus-visible { background: rgba(255, 255, 255, 0.06); }
+    .bs-link .bs-icon { font-size: 15px; width: 22px; }
+    button.bs-link { width: 100%; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+    .bs-link[aria-current] { font-weight: 600; }
+    .bs-link .bs-out { margin-left: auto; color: var(--text-muted, #a8a294); font-size: 13px; }
+    html[data-nav-solo] body { padding-top: env(safe-area-inset-top); }
+    .bs-here { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .bs-here .pill, .bs-here .pill.neural-mini { margin-left: 0; min-height: 34px; padding: 4px 12px; font-size: 13px; } /* big enough to tap on a phone */
+    /* Matching the view underneath (the owner 2026-11-14: "make sure this doesn't feel jammed in and matches the theme").
+       Campus: the side panel's dark glass, Instrument Serif titles, Geist text, soft tinted cards. Neural: its navy and
+       blue lines. No backdrop blur: over the live 3D city a blurred, scrolling panel smeared (see #panel above). */
+    .bsheet { isolation: isolate; contain: paint; } /* it grows out of the door you tapped (campus/blocks.js zoom()) */
+    .bs-sign { font: 500 10.5px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted, #a8a294); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bsheet.bs-campus, .bsheet.bs-neural { font-family: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .bsheet.bs-campus { background: rgb(20, 22, 28); color: #f4f1ea; border-color: rgba(255, 255, 255, 0.16); }
+    .bsheet.bs-campus .bs-title { font: 400 24px/1.1 "Instrument Serif", Georgia, serif; letter-spacing: 0.005em; }
+    .bsheet.bs-campus .bs-top { border-bottom-color: rgba(255, 255, 255, 0.1); }
+    .bsheet.bs-campus .bs-body .bg-white, .bsheet.bs-campus .bs-body .card, .bsheet.bs-campus .bs-item { background: rgba(255, 255, 255, 0.045); border-color: rgba(255, 255, 255, 0.12); border-radius: 16px; }
+    .bsheet.bs-campus .bs-body h2, .bsheet.bs-campus .bs-body section > .font-semibold:first-child, .bsheet.bs-campus .bs-body details > summary.font-semibold { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 21px; letter-spacing: 0.005em; }
+    .bsheet.bs-neural { background: radial-gradient(ellipse at 50% 0%, #1a1f3a 0%, #0b0e1a 75%); color: #dfe6f2; border-color: rgba(160, 200, 255, 0.22); }
+    .bsheet.bs-neural .bs-title { font-weight: 700; font-size: 17px; color: #f0f3f8; }
+    .bsheet.bs-neural .bs-sign, .bsheet.bs-neural .bs-team { color: #8fa6c8; }
+    .bsheet.bs-neural .bs-top { border-bottom-color: rgba(160, 200, 255, 0.18); }
+    .bsheet.bs-neural .pill { background: #141a26; border-color: rgba(160, 200, 255, 0.3); color: #dfe6f2; }
+    .bsheet.bs-neural .bs-body .bg-white, .bsheet.bs-neural .bs-body .card, .bsheet.bs-neural .bs-item { background: rgba(160, 200, 255, 0.05); border-color: rgba(160, 200, 255, 0.16); border-radius: 12px; }
+    .bsheet.bs-neural .bs-body h2, .bsheet.bs-neural .bs-body section > .font-semibold:first-child, .bsheet.bs-neural .bs-body details > summary.font-semibold { color: #f0f3f8; letter-spacing: 0.01em; }
+    /* on a computer it floats like the campus's other cards, with the city still showing round its edge */
+    @media (min-width: 641px) { .bsheet.bs-campus, .bsheet.bs-neural { top: 10px; right: 10px; bottom: 10px; width: min(860px, calc(100% - 20px)); border-width: 1px; border-style: solid; border-radius: 20px; box-shadow: 0 18px 50px rgba(8, 12, 20, 0.5); }
+      .bsheet.bs-campus.bs-list, .bsheet.bs-neural.bs-list { width: min(460px, calc(100% - 20px)); } }
+    @media (max-width: 640px) { .bsheet { width: 100%; border-left: 0; } .bs-lbl { display: none; } .bs-sign { letter-spacing: 0.07em; } .bs-top .pill { min-width: 40px; justify-content: center; } } /* icons only, so the title and team fit */
+    /* Solo (the owner 2026-11-14): the campus stands on its own, with no side menu (nav.js skips it on data-nav-solo) and
+       no title bar: the city gets the whole screen. Every page is in ▦ Rooms; the View picker switches views. */
+    html[data-nav-solo] body > header { display: none; }
+    #help { background: var(--glass-strong); border-color: var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 16px; }
+  </style>
+  <link rel="stylesheet" href="/fonts/fonts.css" />
+  <!-- three.js r160, vendored (public/vendor/README.md), for the 3D campus -->
+  <script type="importmap">{ "imports": { "three": "/vendor/three.module.min.js?v=r160", "three/addons/": "/vendor/jsm/" } }</script>
+</head>
+<body>
+  <header class="border-b border-slate-200 bg-white">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center text-white font-bold">◎</div>
+      <div class="flex-1 min-w-0">
+        <h1 class="text-lg font-semibold">Campus</h1>
+        <p class="text-sm text-slate-500">Your whole hub as a campus. Tap a building for its doors (your hub pages) and staff; tap again inside for a floor. Drag to move, pinch to zoom.</p>
+      </div>
+      <a href="/agents.html" class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm">List view</a>
+    </div>
+  </header>
+
+  <div id="stage">
+    <canvas id="c" aria-label="Campus map of AI desks by project room"></canvas>
+    <div class="hud">
+      <button class="pill" id="hMin" title="Hide or show the buttons and cards (more room for the campus)">▴</button>
+      <button class="pill" id="hBack" style="display:none">← Campus</button>
+    <button class="pill" id="hRooms" data-open-block="" title="Every hub page: Pipeline, Admin and AI and spend open right here; the rest open as plain pages">▦ Rooms</button>
+      <span class="pill" id="hApi" title="Real API money this month">API –</span>
+      <span class="pill" id="hSub" title="Subscription use priced as if on the API">Sub –</span>
+      <button class="pill" id="hHr" title="Staff requests waiting">HR inbox –</button>
+      <button class="pill" id="hOrg" title="Who reports to whom; tap anyone to realign them">Org chart</button>
+      <button class="pill" id="hAdd" title="Add a project: a building, a lead and (for work on this PC) its folder">＋ Project</button>
+      <button class="pill" id="hNew" style="display:none;background:#f3d9a4;color:#1b1f27" title="What changed since you last looked"></button>
+      <button class="pill" id="hWx" style="display:none" title="Live weather. Tap to switch the light: Auto (the real sun), always day, always night"></button>
+    </div>
+    <div id="toast" class="pill" role="status" aria-live="polite" style="display:none"></div>
+    <div id="help"><b>How it works:</b> tap a building for its doors (your hub pages) and staff; tap again inside for a floor. Drag to move, pinch or scroll to zoom.<br><br>Lit windows / glowing screen = active in the last 15 min · battery: green = cap left, blue = subscription use · gold antenna = lead · espresso steam = today's work · roof plants = finished this week · fountain = budget health · z = paused · <span id="helpPet"></span>confetti = something shipped · Fridays: tacos · ✨ = heavier-PC look (miniature blur, night glow) · the yellow U on the plaza = the Underground, where paused projects wait · shirts: model (O5.5 = Opus 5.5; Gemini: GA = Argon, GP = Pro, GF = Flash), effort dots, pocket coin = how they're paid (gold $ = API, pay per use; blue S = subscription) · desk plants, lamps, gold chairs and trophies were bought at the Campus Store with credits earned from real work</div>
+    <aside id="panel" aria-live="polite"></aside><div id="pgrip" title="Drag to resize"></div>
+  </div>
+  <script type="module" src="/campus/boot.js"></script>
+</body>
+</html>

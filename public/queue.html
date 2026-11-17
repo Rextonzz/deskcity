@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Queue</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+</head>
+<body class="min-h-screen">
+  <header data-icon="≡" data-tone="red">
+    <h1>Queue</h1>
+    <p>What's running now, what's waiting, and what's coming up when.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-5"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/queue.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/queue.js";
+    mount(document.getElementById("block"));
+  </script>
+</body>
+</html>

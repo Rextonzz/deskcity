@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Games</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+</head>
+<body class="min-h-screen">
+  <header data-icon="🎮" data-tone="slate-800">
+    <h1>Games</h1>
+    <p>Every game you play, any platform: where you are with it, hours, notes and a log. Games with more to track get an add-on of their own.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-5"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/games.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/games.js";
+    mount(document.getElementById("block"));
+  </script>
+</body>
+</html>

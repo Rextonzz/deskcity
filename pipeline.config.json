@@ -1,0 +1,10 @@
+{
+  "timezone": null,
+  "python": "python",
+  "ffmpeg": "ffmpeg",
+  "ffprobe": "ffprobe",
+  "chromeProfileDir": "./.chrome-profile",
+  "jobsDir": "./data/jobs",
+  "pollSeconds": 10,
+  "channels": {}
+}

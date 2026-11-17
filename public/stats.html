@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Channel Stats</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+  <script src="/timing.js"></script>
+  <script src="/runlog.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header data-icon="▶" data-tone="red">
+    <h1>Channel Stats</h1>
+    <p class="hidden sm:block">From each channel's tracker or log. Quick pull grabs views for every video in about a minute. Full pull opens each video for likes, subs and stayed to watch too.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-6"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/stats.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/stats.js";
+    mount(document.getElementById("block"));
+    // The header line is neutral in the markup; this fills in this hub's own words (from /api/hub/settings).
+    import { chOfLayout } from "/hubinfo.js";
+    const clips = chOfLayout("clips"), p = document.querySelector("header p");
+    if (clips.name && chOfLayout("packs").name) p.textContent = `From your Pack Tracker and ${clips.name} log. Quick pull grabs views for every video in about a minute. Full pull opens each video for likes, subs and stayed to watch too.`;
+  </script>
+</body>
+</html>

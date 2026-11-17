@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deal Watch</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+  <script src="/timing.js"></script>
+  <script src="/runlog.js"></script>
+</head>
+<body class="min-h-screen">
+  <header data-icon="♠" data-tone="slate-800">
+    <h1>Deal watch</h1>
+    <p class="hidden sm:block">Damaged cards at the local store against their Near Mint price, plus your deck, upgrade picks and cards still to buy. All CAD. It never buys or adds to a cart.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-5"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/deals.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/deals.js";
+    mount(document.getElementById("block"));
+    // The header line is neutral in the markup; this fills in this hub's own words (from /api/hub/settings).
+    import { stores } from "/hubinfo.js";
+    document.querySelector("header p").textContent = `Damaged cards at ${[stores.shop, stores.towns.join(" and ")].filter(Boolean).join(" ")} against their Near Mint price, plus your ${stores.deck ? `${stores.deck} deck` : "deck"}, upgrade picks and cards still to buy. All CAD. It never buys or adds to a cart.`;
+  </script>
+</body>
+</html>

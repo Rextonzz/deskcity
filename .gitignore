@@ -1,0 +1,46 @@
+# Secrets (any .env-style file; the example has no keys)
+.env
+.env.*
+*.env
+!.env.example
+
+# Installed packages
+node_modules/
+
+# Pipeline working data (videos, frames, renders, screenshots, browser sign-in)
+.chrome-profile/
+data/
+# The sample hub (npm run demo) builds and rebuilds this folder
+demo-data/
+output/
+inbox/
+
+# Video, audio and other large media
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.zip
+
+# Tracker spreadsheets and their backups (remove these lines to back them up too)
+*.xlsx
+*.xlsx.bak
+
+# Python and OS clutter
+__pycache__/
+*.pyc
+Thumbs.db
+desktop.ini
+
+# Campus screenshot check output (the baselines in test/campus/baseline/ are kept)
+test/campus/out/
+
+# Background workers' working copies
+.claude/worktrees/
+
+
+# Session worktrees (work in .wt/<branch> so the hub folder stays on main)
+.wt/

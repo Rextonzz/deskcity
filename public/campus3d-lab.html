@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Campus 3D lab</title>
+<!-- A lab page for the 3D campus building blocks (public/campus/3d/). Not linked from the campus yet.
+     Plan: docs/design/campus-3d/brief.md. ?night=1 (or 0..1) starts at night. -->
+<style>
+  :root { --ink: #22262e; --panel: rgba(255, 252, 245, 0.88); --line: rgba(0, 0, 0, 0.12); --accent: #c8792f; }
+  :root[data-night="1"] { --ink: #e9e4d8; --panel: rgba(16, 22, 36, 0.86); --line: rgba(255, 255, 255, 0.14); --accent: #f3c46b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe3f2; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+  #stage { position: fixed; inset: 0; touch-action: none; }
+  #stage canvas { display: block; }
+  .hud { position: fixed; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+         background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; backdrop-filter: blur(6px); max-width: 560px; margin: 0 auto; box-sizing: border-box; }
+  .hud b { font-weight: 700; }
+  .hud label { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; }
+  .hud input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+  .stat { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: 12px; white-space: nowrap; }
+  .title { position: fixed; left: 12px; top: max(10px, env(safe-area-inset-top)); font-weight: 700; font-size: 15px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+  .title small { font-weight: 500; opacity: 0.7; margin-left: 6px; }
+  #picked { min-height: 1em; }
+  .sign { pointer-events: none; font: 700 12px system-ui, sans-serif; color: #f6efe0; background: rgba(36, 40, 50, 0.82); padding: 3px 9px; border-radius: 999px; white-space: nowrap; transform: translateY(-6px); }
+  .sign.small { font-size: 10px; padding: 2px 7px; opacity: 0.92; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body>
+<div id="stage"></div>
+<div class="title">Campus 3D lab<small>building blocks, not live data</small></div>
+<div class="hud">
+  <label><b>Day</b><input id="night" type="range" min="0" max="1" step="0.01" value="0" aria-label="Day to night"><b>Night</b></label>
+  <span class="stat" id="stats">calls –</span>
+  <span class="stat" id="picked">Tap a building</span>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { MapControls } from "three/addons/controls/MapControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { makeLights } from "./campus/3d/lights.js";
+import { makeBuilding, makeTower, mergeParts, FLOOR_H } from "./campus/3d/buildings.js";
+import { makeLamps } from "./campus/3d/lamps.js";
+import { makePet } from "./campus/3d/pet.js";
+import { makeQuality } from "./campus/3d/quality.js";
+import { hueOf, paint, COLORS, mats } from "./campus/3d/materials.js";
+
+const stage = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.appendChild(renderer.domElement);
+const labels = new CSS2DRenderer();
+Object.assign(labels.domElement.style, { position: "absolute", inset: "0", pointerEvents: "none" });
+stage.appendChild(labels.domElement);
+
+const scene = new THREE.Scene();
+const rig = makeLights(scene, renderer, { phone: matchMedia("(pointer: coarse)").matches });
+const quality = makeQuality(renderer, (t) => rig.setShadows(t.shadows));
+
+// ---------- the lot (tile units, like core.js layout(): STREET = 3) ----------
+// Two columns and two rows of plots with a street between each: col 0 x 0..6.5, col 1 x 9.5..16; same for rows.
+const STREET = 3, C0 = 0, C1 = 6.5 + STREET, R0 = 0, R1 = 6.5 + STREET;
+const LOT = { x0: -22, x1: 38, z0: -22, z1: 38 };
+const center = new THREE.Vector3((C1 + 6.5) / 2, 0, (R1 + 6.5) / 2);
+
+{ // Ground, streets, kerbs, centre lines and the little plaza where they cross: one merged mesh.
+  const parts = [];
+  const flat = (w, d, x, z, y, color) => { const g = new THREE.BoxGeometry(w, 0.04, d); g.translate(x, y - 0.02, z); parts.push(paint(g, color)); };
+  flat(LOT.x1 - LOT.x0, LOT.z1 - LOT.z0, (LOT.x0 + LOT.x1) / 2, (LOT.z0 + LOT.z1) / 2, 0, COLORS.grass);
+  const sx = 6.5 + STREET / 2, sz = 6.5 + STREET / 2; // street centres
+  flat(LOT.x1 - LOT.x0, STREET + 0.5, (LOT.x0 + LOT.x1) / 2, sz, 0.02, COLORS.kerb);
+  flat(STREET + 0.5, LOT.z1 - LOT.z0, sx, (LOT.z0 + LOT.z1) / 2, 0.02, COLORS.kerb);
+  flat(LOT.x1 - LOT.x0, STREET - 0.4, (LOT.x0 + LOT.x1) / 2, sz, 0.04, COLORS.road);
+  flat(STREET - 0.4, LOT.z1 - LOT.z0, sx, (LOT.z0 + LOT.z1) / 2, 0.04, COLORS.road);
+  for (let x = LOT.x0 + 0.6; x < LOT.x1; x += 1.6) if (Math.abs(x - sx) > 2) flat(0.8, 0.09, x, sz, 0.06, COLORS.roadLine);
+  for (let z = LOT.z0 + 0.6; z < LOT.z1; z += 1.6) if (Math.abs(z - sz) > 2) flat(0.09, 0.8, sx, z, 0.06, COLORS.roadLine);
+  const plaza = new THREE.CylinderGeometry(1.9, 1.9, 0.08, 24); plaza.translate(sx, 0.07, sz); parts.push(paint(plaza, new THREE.Color(0xd8c7a2)));
+  const basin = new THREE.CylinderGeometry(0.9, 1.0, 0.32, 16); basin.translate(sx, 0.24, sz); parts.push(paint(basin, new THREE.Color(0xe2dccd)));
+  const water = new THREE.CylinderGeometry(0.78, 0.78, 0.06, 16); water.translate(sx, 0.38, sz); parts.push(paint(water, new THREE.Color(0x6ec0e8)));
+  const ground = new THREE.Mesh(mergeParts(parts), mats.painted());
+  ground.receiveShadow = true;
+  ground.name = "ground";
+  scene.add(ground);
+}
+
+// ---------- buildings ----------
+const signs = [];
+function sign(obj, text, y, small = false) {
+  const el = document.createElement("div"); el.className = "sign" + (small ? " small" : ""); el.textContent = text;
+  const s = new CSS2DObject(el); s.position.set(obj.userData.w / 2, y, obj.userData.d / 2); obj.add(s); signs.push(s);
+}
+const buildings = [];
+function place(b, x, z, w) { b.position.set(x + (6.5 - w) / 2, 0, z + (6.5 - w) / 2); scene.add(b); buildings.push(b); return b; }
+const yt = place(makeBuilding({ w: 6.5, d: 6.5, floors: 3, hue: hueOf("youtube"), name: "YouTube", id: "youtube" }), C0, R0, 6.5);
+const ng = place(makeBuilding({ w: 5.5, d: 5.5, floors: 5, hue: hueOf("arcade"), name: "Arcade", id: "arcade" }), C1, R0, 5.5);
+const hr = place(makeBuilding({ w: 4.6, d: 4.6, floors: 1, hue: hueOf("hr"), name: "HR", id: "hr" }), C0, R1, 4.6);
+const small = [["df", "Many Peoples"], ["cards", "Cards"], ["mascot", "Mascot essays"], ["dokkan", "Dokkan"]];
+const tower = place(makeTower(small.map(([id, name]) => ({ project: id, name, hue: hueOf(id) })), { id: "tower:main:1" }), C1, R1, 5.5);
+sign(yt, "YouTube", yt.userData.h + 1.2); sign(ng, "Arcade", ng.userData.h + 1.2); sign(hr, "HR", hr.userData.h + 1.2);
+sign(tower, "Small projects", tower.userData.h + 1.2);
+small.forEach(([, name], f) => { const el = document.createElement("div"); el.className = "sign small"; el.textContent = name; const s = new CSS2DObject(el); s.position.set(5.5 + 0.2, f * FLOOR_H + 0.75, 5.5 / 2); tower.add(s); signs.push(s); });
+
+// Which windows are lit: a made-up "busy" pattern per floor (the real one comes from the model later).
+const busy = { youtube: [1, 0, 1], arcade: [1, 1, 0, 1, 0], hr: [1], "tower:main:1": [1, 0, 1, 1] };
+const hash = (s) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+for (const b of buildings) {
+  const key = b.userData.project || b.userData.tower;
+  b.setWindows((sl) => (busy[key]?.[sl.floor] ? (hash(key + sl.side + sl.index + sl.floor) % 5 ? 1 : 0.2) : (hash(sl.side + sl.index + sl.floor) % 9 === 0 ? 0.6 : 0)));
+}
+
+// ---------- trees: two instanced meshes (trunks, crowns) ----------
+const treeSpots = [];
+// Scatter trees around the campus (denser near it), off the streets and out of the building plots.
+// A small seeded random (mulberry32), so the trees land in the same places every load.
+let seed = 20261109;
+const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+for (let i = 0; treeSpots.length < 70 && i < 2000; i++) {
+  const r = 10 + Math.pow(rnd(), 1.5) * 22, ang = rnd() * Math.PI * 2;
+  const x = 8 + Math.cos(ang) * r, z = 8 + Math.sin(ang) * r, sc = 0.8 + rnd() * 0.45;
+  const onStreet = Math.abs(x - (6.5 + STREET / 2)) < 2.4 || Math.abs(z - (6.5 + STREET / 2)) < 2.4;
+  const inPlots = x > -1.2 && x < 17.2 && z > -1.2 && z < 17.2;
+  const offLot = x < LOT.x0 + 1 || x > LOT.x1 - 1 || z < LOT.z0 + 1 || z > LOT.z1 - 1;
+  const crowded = treeSpots.some((t) => Math.hypot(t.x - x, t.z - z) < 1.3) || Math.hypot(x - 5.6, z - 17.4) < 1.8; // not on the pet
+  if (!onStreet && !inPlots && !offLot && !crowded) treeSpots.push({ x, z, s: sc });
+}
+{
+  const trunkGeo = paint(new THREE.CylinderGeometry(0.08, 0.11, 0.6, 6).translate(0, 0.3, 0), COLORS.trunk);
+  const crownGeo = paint(new THREE.ConeGeometry(0.5, 1.2, 7).translate(0, 1.15, 0), COLORS.leaf);
+  const trunks = new THREE.InstancedMesh(trunkGeo, mats.painted(), treeSpots.length);
+  const crowns = new THREE.InstancedMesh(crownGeo, mats.painted(), treeSpots.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  treeSpots.forEach((t, i) => {
+    m.compose(p.set(t.x, 0, t.z), q, s.setScalar(t.s));
+    trunks.setMatrixAt(i, m); crowns.setMatrixAt(i, m);
+    crowns.setColorAt(i, new THREE.Color().setHSL(0.31 + (i % 5) * 0.012, 0.36, 0.38 + (i % 3) * 0.04));
+  });
+  for (const o of [trunks, crowns]) { o.castShadow = true; scene.add(o); }
+}
+
+// ---------- lamps along the two streets ----------
+const sx = 6.5 + STREET / 2;
+const lamps = makeLamps([
+  { x: -3, z: sx - 1.75, ry: -Math.PI / 2 }, { x: 4, z: sx - 1.75, ry: -Math.PI / 2 }, { x: 13, z: sx + 1.75, ry: Math.PI / 2 }, { x: 20, z: sx + 1.75, ry: Math.PI / 2 },
+  { x: sx + 1.75, z: 2.5, ry: Math.PI }, { x: sx - 1.75, z: 15, ry: 0 },
+]);
+scene.add(lamps.group);
+
+// ---------- the pet, on the kerb in front of HR (the plaza hides behind the tower from this angle) ----------
+const rex = makePet();
+rex.position.set(5.6, 0.04, 17.4);
+rex.rotation.y = Math.PI * 0.25; // side-on to the camera, walking along the kerb
+rex.scale.setScalar(1.6);
+scene.add(rex);
+
+// ---------- camera: orthographic isometric, yaw 45°, pitch -35.264° ----------
+const VIEW_H = 26; // world units visible top to bottom at zoom 1
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+const dist = 80;
+camera.position.copy(center).add(new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(dist)); // yaw 45°, pitch -atan(1/√2)
+camera.lookAt(center);
+const controls = new MapControls(camera, renderer.domElement);
+controls.target.copy(center);
+controls.enableRotate = false;
+controls.screenSpacePanning = false;
+controls.enableDamping = true;
+controls.dampingFactor = 0.12;
+controls.zoomToCursor = true;
+controls.minZoom = 0.3; controls.maxZoom = 2.2;
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
+// Keep the target on the campus: shift camera and target together so the view direction never changes.
+const lo = new THREE.Vector3(-6, 0, -6), hi = new THREE.Vector3(22, 0, 22);
+controls.addEventListener("change", () => {
+  const before = controls.target.clone();
+  controls.target.clamp(lo, hi);
+  controls.target.y = 0;
+  camera.position.add(controls.target.clone().sub(before));
+  dirty = true;
+});
+
+function resize() {
+  const w = innerWidth, h = innerHeight, aspect = w / h;
+  renderer.setSize(w, h); labels.setSize(w, h);
+  camera.left = -VIEW_H * aspect / 2; camera.right = VIEW_H * aspect / 2; camera.top = VIEW_H / 2; camera.bottom = -VIEW_H / 2;
+  camera.userData.viewHeight = h;
+  // Fit the campus: about 25 tiles across on a phone (the lot edges may crop), 29 tall on a desktop.
+  camera.zoom = THREE.MathUtils.clamp(Math.min(VIEW_H * aspect / 25, VIEW_H / 29), 0.3, 2.2);
+  camera.updateProjectionMatrix();
+  dirty = true;
+}
+addEventListener("resize", resize);
+
+// ---------- day and night ----------
+const slider = document.getElementById("night");
+function setNight(n) {
+  rig.setNight(n); lamps.setNight(n);
+  for (const b of buildings) b.setNight(n);
+  document.documentElement.dataset.night = n > 0.5 ? "1" : "0";
+  document.body.style.background = "#" + scene.background.getHexString();
+  slider.value = n; dirty = true;
+}
+slider.addEventListener("input", () => setNight(Number(slider.value)));
+const q0 = Number(new URLSearchParams(location.search).get("night"));
+
+// ---------- taps: under 6 px of movement on pointerup is a tap; raycast the pick boxes ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+const picks = []; scene.traverse((o) => { if (o.name === "pick") picks.push(o); });
+let down = null;
+renderer.domElement.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY }; });
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects(picks, false)[0];
+  document.getElementById("picked").textContent = hit ? `Tapped: ${hit.object.userData.name}${hit.object.userData.tower ? ` (tower floor ${hit.object.userData.floor + 1})` : ""}` : "Tap a building";
+});
+
+// ---------- loop ----------
+let dirty = true, shadowCalls = 0;
+const stats = document.getElementById("stats");
+rig.fit(center.clone(), 20);
+resize();
+quality.apply();
+setNight(Number.isFinite(q0) ? Math.min(1, Math.max(0, q0)) : 0);
+function frame(now) {
+  requestAnimationFrame(frame);
+  quality.frame(now);
+  controls.update();
+  rex.update(now / 1000);
+  lamps.update(camera, renderer.getPixelRatio());
+  const shadowPass = renderer.shadowMap.needsUpdate;
+  renderer.render(scene, camera);
+  if (shadowPass) shadowCalls = renderer.info.render.calls;
+  else {
+    const calls = renderer.info.render.calls;
+    stats.textContent = `${calls} draw calls · ${(renderer.info.render.triangles / 1000).toFixed(1)}k tris · ${quality.tier.name}`;
+    window.lab.calls = calls;
+  }
+  labels.render(scene, camera);
+}
+window.lab = { THREE, scene, renderer, camera, controls, setNight, calls: 0, get shadowCalls() { return shadowCalls; } };
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

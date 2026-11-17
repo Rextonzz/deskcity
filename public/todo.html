@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>To-do and ideas</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+</head>
+<body class="min-h-screen">
+  <header data-icon="✎" data-tone="slate-800" data-w="4xl">
+    <h1>To-do and ideas</h1>
+    <p>Throw ideas in; sort them later. Ask Claude and rules-review items that need building land here by themselves.</p>
+  </header>
+
+  <main id="block" class="max-w-4xl mx-auto px-4 py-6 space-y-5"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/todo.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/todo.js";
+    mount(document.getElementById("block"));
+  </script>
+</body>
+</html>

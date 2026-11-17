@@ -1,0 +1,16 @@
+{
+  "owner": { "id": "owner", "name": "You" },
+  "place": { "name": "", "country": "", "lat": null, "lon": null, "timezone": null },
+  "currency": { "code": "USD" },
+  "tools": { "godotPaths": [], "programFilesDirs": [], "downloadDir": "" },
+  "workRules": { "file": "" },
+  "loginSubtitle": "",
+  "pet": null,
+  "addons": [],
+  "display": "3d",
+  "agents": { "mart": { "lastingPerWeek": 2 }, "autoRun": { "perDay": 5 }, "helpers": { "on": false, "perDayUsd": 1 }, "passOff": { "on": true } },
+  "pipeline": { "capUsdMonth": null },
+  "notify": { "enabled": false, "securityWhenOff": false },
+  "backup": { "copyTo": "", "keep": 14 },
+  "kit": { "name": "Deskcity", "version": "0.1.0", "updatesUrl": "" }
+}

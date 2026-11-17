@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YouTube Settings</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header data-icon="▶" data-tone="slate-900">
+    <h1>YouTube settings</h1>
+    <p class="hidden sm:block">Posting times and each channel's own checks.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-6"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/youtube-settings.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/youtube-settings.js";
+    mount(document.getElementById("block"));
+    // The header line is neutral in the markup; this fills in this hub's own words (from /api/hub/settings).
+    import { chOfLayout } from "/hubinfo.js";
+    const packs = chOfLayout("packs");
+    if (packs.name) document.querySelector("header p").textContent = `Posting times, pack prices and the ${packs.name} episode check.`;
+  </script>
+</body>
+</html>

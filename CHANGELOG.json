@@ -1,0 +1,15 @@
+[
+  {
+    "at": "2026-11-17T20:00:00Z",
+    "title": "Deskcity 0.1.0: first release",
+    "changes": [
+      "One local hub for every AI worker you use: Claude, Gemini, OpenAI-style and local models, and coding agents such as Claude Code.",
+      "Give a job and pick who takes it next, on another model. Each step's model, tokens and cost are in the AI call log, and a finished job can be replayed step by step.",
+      "A monthly cap per worker, a score from 0 to 100 on every finished job, and one list, Waiting for you, for hires, questions and money warnings.",
+      "Four views of the same hub: 2D city, 3D city, Neural and plain pages.",
+      "AI helpers are off until you turn them on. Spending needs your dashboard password once you set one.",
+      "Nightly backups with a restore test, and updates that keep your data: npm run update.",
+      "New here? Open this folder in Claude Code and say: set up my hub. Or run npm run demo to look around with no keys."
+    ]
+  }
+]

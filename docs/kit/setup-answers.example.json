@@ -1,0 +1,17 @@
+{
+  "owner": { "name": "Sam" },
+  "place": { "name": "Portland", "lat": 45.52, "lon": -122.68, "timezone": "America/Los_Angeles" },
+  "pet": null,
+  "display": "neural",
+  "preset": "standard",
+  "modules": ["cards", "todo"],
+  "providers": {
+    "openai": { "models": ["(the OpenAI model names Sam uses)"] },
+    "local": { "baseUrl": "http://localhost:11434/v1", "models": ["(the Ollama models Sam has pulled)"] }
+  },
+  "projects": [
+    { "id": "shop", "name": "Craft shop", "district": "Creative", "folder": "C:\\Users\\sam\\shop" },
+    { "id": "game", "name": "Platformer game", "district": "Games", "folder": "D:\\code\\platformer", "lead": { "provider": "claude", "model": "claude-code" } },
+    { "id": "budget", "name": "Home budget", "district": "Tools", "lead": { "provider": "local", "model": "(an Ollama model)" } }
+  ]
+}

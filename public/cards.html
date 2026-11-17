@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Price a card</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/tailwind.css" />
+  <script src="/nav.js"></script>
+  <script src="/timing.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header data-icon="♠" data-tone="slate-800">
+    <h1>Price a card</h1>
+    <p class="hidden sm:block">Snap a card for TCGplayer and your stores' prices.</p>
+  </header>
+
+  <main id="block" class="max-w-6xl mx-auto px-4 py-6 space-y-6"></main>
+
+  <script type="module">
+    // The page's working part lives in public/parts/cards.js, shared with the campus (2D, 3D and Neural).
+    import { mount } from "/parts/cards.js";
+    mount(document.getElementById("block"));
+    // The header line is neutral in the markup; this fills in this hub's own words (from /api/hub/settings).
+    import { stores } from "/hubinfo.js";
+    document.querySelector("header p").textContent = `Snap a card for TCGplayer, ${stores.shop} and ${stores.buylist} prices.`;
+  </script>
+</body>
+</html>
