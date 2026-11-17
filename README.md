@@ -12,6 +12,46 @@ Licence: MIT. It is free, and you pay your own AI providers.
 - **Scores every finished job from 0 to 100.** The score is a guide you can overrule with a thumbs up or down.
 - **Keeps you in charge.** Hires, questions from workers and money warnings land in one list called Waiting for you. Once you set a dashboard password, spending needs it. With no password, anything on this PC can start paid work; caps and hourly limits still apply.
 
+## Everything it can do
+
+The short list above is the core. The full list, each with its section in `docs/kit/USER-GUIDE.md`:
+
+**Work across models**
+
+- **Chain a job across models.** When you give a job, pick up to three more workers to take it next, each on its own model. When one step ends, the next worker gets the task and the last result. Steps for workers the hub runs start by themselves. (Section 6.)
+- **Two kinds of worker.** Hub-run workers: the hub calls the model itself (Claude, Gemini, OpenAI-style APIs, or a local model server). Reporting workers: tools that run outside the hub, such as Claude Code and other coding agents, chat apps and scripts, report what they did. (Section 5.)
+- **One command connects Claude Code.** A hook makes every Claude Code session in a project folder report in. Other tools report through one small script. (`docs/kit/REPORTING.md`.)
+- **A declined job can go to the next provider.** When a provider's filter refuses a harmless job, the hub notes who declined and why, and passes it once to the next provider you have a key for. Serious reasons always stop and come to you. (Section 6.)
+- **Workers can hand work on by themselves**, with a limit on how long a chain gets and how many paid jobs start per day without you. (Section 6.)
+
+**See what happened**
+
+- **An AI call log.** Every call's worker, model, tokens, cost and time.
+- **Replay a finished job** step by step in the Neural view.
+- **A live feed** of who took what, who handed it on, and what came back.
+- **A quality score** on every finished job, and a count of refusals per provider and worker. (Section 8.)
+
+**Stay in charge of money and staff**
+
+- **Monthly caps per worker**, hourly limits on spending actions, and a password on anything that spends. (Section 7.)
+- **AI helpers are off until you switch them on**, with their own daily limit. (Section 7.)
+- **HR.** A project lead asks for staff; HR checks the request against your budget and models; you approve the hire. (Section 5.)
+- **Waiting for you.** One list for hires, questions, finished jobs and money warnings. (Section 6.)
+
+**Run it your way**
+
+- **Four views** of the same data (below), and a **command bar** for jobs and actions from the keyboard. (Sections 3 and 10.)
+- **Phone alerts and phone access**, both off until you set them up. (Section 9.)
+- **Nightly backups** with a restore test, and **updates that keep your data**: `npm run update`. (Sections 12 and 13.)
+- **A sample hub with made-up data**: `npm run demo`, no keys needed.
+
+**Optional parts** (each is a switch; section 4)
+
+- **Campus life:** workers earn credits, shop at the campus store, keep a home and chat. For fun; it changes no work.
+- **Board and finance buddy:** a stand-up of project leads and a plain-words note on where the money went.
+- **Pull-request reviews**, and a team template for game development.
+- **Add-ons, off by default and experimental:** a YouTube and TikTok video pipeline, trading card tools, a games tracker, a reading and watching list, and a to-do list.
+
 ## Four views of the same data
 
 Pick how it looks and how heavy it is. Change your mind any time.
