@@ -218,7 +218,7 @@ pipelineRouter.post("/jobs/:id/restart", requirePasswordConfirmed, action((req) 
 // Admin tools (admin.js). Each answers JSON; errors come back as {error}.
 pipelineRouter.get("/admin/pause", safe(() => pauseState()));
 pipelineRouter.post("/admin/pause", safe((req) => setPaused(req.body?.paused)));
-// Standby: this copy never posts (home server move). Both ways need the password: turning it off makes this copy post.
+// Standby: this copy never posts (for moving the hub to another computer). Both ways need the password: turning it off makes this copy post.
 pipelineRouter.get("/admin/standby", safe(() => standbyState()));
 pipelineRouter.post("/admin/standby", requirePasswordConfirmed, safe((req) => {
   const on = req.body?.standby === true;

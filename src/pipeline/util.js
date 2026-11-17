@@ -103,7 +103,7 @@ export function fontFile() {
   return FONT_FALLBACKS.find((f) => fs.existsSync(f)) || p;
 }
 
-// Standby (home server move, 2026-10-19): a copy of the app that must never post. While data/standby.json says
+// Standby (for moving the hub to another computer; added 2026-10-19): a copy of the app that must never post. While data/standby.json says
 // standby, nothing uploads, changes visibility, pins or posts to TikTok; only TEST_ jobs run, so the new box can be
 // tried beside the live PC without double posts. Turned off on the box that becomes the live one.
 const STANDBY_FILE = () => path.join(appConfig.rootDir, "data", "standby.json");

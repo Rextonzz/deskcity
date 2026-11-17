@@ -351,14 +351,14 @@ export async function mount(root, opts = {}) {
   // Admin tools: controls, corrections, devices, disk, downloads, versions.
   const mb = (n) => (n == null ? "?" : n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${Math.round(n / 1048576)} MB`);
   const STAGE = { locate: "Finding the pack, set and turn", readCards: "Reading cards", price: "Card prices", render: "Making the video (pack cost, episode)", checkRender: "Render check", package: "Titles and text", review: "Reviewing the clip", plan: "Planning the cut", checkEdit: "Checking the cut", audit: "Your check before upload", cardRead: "Reading a card photo", intake: "Finding the clips" };
-  // Standby (home server move): this copy only runs TEST_ jobs and never posts.
+  // Standby (for moving the hub to another computer): this copy only runs TEST_ jobs and never posts.
   async function loadStandby() {
     const s = await api("/admin/standby").catch(() => ({ standby: false }));
     $("standbyBtn").textContent = s.standby ? "Make this the live copy" : "Put on standby";
     $("standbyBtn").className = `text-sm px-3 py-1.5 rounded-lg ${s.standby ? "bg-amber-600 text-white" : "border border-slate-300"}`;
     $("standbyMsg").innerHTML = s.standby
       ? `<b class="font-medium text-amber-700">Standby copy</b> since ${esc(when(s.at))}${s.reason ? ` (${esc(s.reason)})` : ""}. It runs TEST_ videos only and never uploads or posts.`
-      : "This is the live copy. Standby is for the home server move: a standby copy never uploads or posts.";
+      : "This is the live copy. Standby is for when you move the hub to another computer: a standby copy never uploads or posts.";
     $("standbyBtn").onclick = async () => {
       const on = !s.standby;
       const text = on ? "This copy stops uploading and posting. Scheduled videos already in Studio still go public; pinned comments and TikTok posts wait." : "This copy starts uploading and posting. Only do this when the other copy is on standby, or videos go up twice.";

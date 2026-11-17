@@ -170,7 +170,8 @@ export const prReviews = () => Object.values(prReviewState()).sort((a, b) => Str
 // security review"). HR checks it and the owner approves; until then PRs get the code review only.
 export function ensureSecurityRequest() {
   const r = roster();
-  if (!r.rooms.some((x) => x.id === "hub") || r.desks.some(isSecurityDesk)) return null;
+  // Only when there are pull requests to review (a repo with its token): a new hub with no repos gets no request.
+  if (!r.rooms.some((x) => x.id === "hub") || r.desks.some(isSecurityDesk) || !reviewRepos().length) return null;
   const st = readJson(ASSIST_STATE(), {});
   if (st.securityAsked || requests().some((q) => /security review/i.test(q.role) && q.decision?.decision !== "declined")) return null;
   const q = addRequest(
@@ -179,7 +180,7 @@ export function ensureSecurityRequest() {
       deskId: "security-reviewer",
       runner: "hub",
       role: "Security reviewer: reads every pull request's diff against a security checklist before a merge",
-      why: `${OWNER()} asked for a security review on PRs (2026-11-11). A second reader from a different lab than the code reviewer, with one narrow job, so nobody signs off their own work.`,
+      why: "Pull requests on your repos get a security read before a merge: a second reader from a different provider than the code reviewer, with one narrow job, so nobody signs off their own work.",
       needs:
         "One short review per PR version; docs-only PRs are skipped. Suggested on Claude Opus because a missed security problem costs more than the model.",
       suggested: { provider: "claude", model: "claude-opus-5-5", effort: "low" },
