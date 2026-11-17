@@ -1,0 +1,4 @@
+# The kit's double-click scripts must keep their line endings whatever a checkout's settings say:
+# cmd needs CRLF, bash needs LF.
+docs/kit/installer/*.cmd text eol=crlf
+docs/kit/installer/*.sh text eol=lf

@@ -30,7 +30,7 @@ try {
 } catch (err) {
   try { fs.appendFileSync(path.join(LOGS, "crash.log"), `${new Date().toISOString()} pid ${process.pid} refused second start: ${err.message}\n`); } catch {}
   console.error(err.message);
-  process.exit(1);
+  process.exit(3); // 3 = refused, already running (start.cmd and start.sh stop their restart loop on it)
 }
 // The data format (src/hub/migrations.js): brings data/ up to this version (backup first) or refuses to start on data from a newer one.
 try {
@@ -199,5 +199,5 @@ const server = app.listen(config.port, host, async () => {
 server.on("error", (err) => {
   crash(err.code === "EADDRINUSE" ? "refused second start" : "could not start", err); // a busy port is not a crash of the running hub
   console.error(err.code === "EADDRINUSE" ? `Port ${config.port} is already in use: the app is probably already running in another window.` : err);
-  process.exit(1);
+  process.exit(err.code === "EADDRINUSE" ? 3 : 1); // 3 = refused, the port is taken so a hub is probably already running (start.cmd and start.sh stop on it)
 });

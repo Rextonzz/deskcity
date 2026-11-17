@@ -73,6 +73,16 @@ Just want to look around? After `npm install`, run `npm run demo` and open <http
 
 You need [Node.js](https://nodejs.org) 20 or newer. Windows is the main tested system (see the FAQ for Mac and Linux).
 
+**Windows: double-click `install.cmd`. Mac or Linux: run `bash install.sh`.**
+
+It checks Node.js, installs the packages, makes your `.env` file, offers to set a password and a first setup, and checks the result. Each step says what it is doing, and you can run it again safely: it skips what is done. It needs no admin rights and sends nothing anywhere (npm fetches the packages, that is all). Optional extras, each off unless you say yes: a desktop icon and start at sign-in on Windows, and start at sign-in on Linux.
+
+**Start it any time with `start.cmd` (or `bash start.sh`).** It opens your browser when the hub is ready and starts the hub again 10 seconds after a crash. To keep it from opening the browser, set `DESKCITY_NO_BROWSER=1`.
+
+To remove the shortcuts later, double-click `uninstall-autostart.cmd` (Linux: `bash install.sh --remove-autostart`). Start at sign-in on a Mac is not covered.
+
+### Or step by step
+
 1. Get the files and open a terminal in the folder.
 
 2. Install:
@@ -111,7 +121,7 @@ node tools/setup.mjs --answers data/setup-answers.json
 node tools/setup.mjs --check
 ```
 
-6. Start the hub, then open <http://localhost:3000>:
+6. Start the hub, then open <http://localhost:3000> (or use `start.cmd`, which also starts it again after a crash):
 
 ```
 npm start

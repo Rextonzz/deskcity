@@ -8,7 +8,9 @@ The design idea: pick how it looks and how heavy it is, and change your mind any
 
 You need Node.js 20 or newer ([nodejs.org](https://nodejs.org)). Windows is the main tested system.
 
-In the hub folder, install the packages:
+**The easy way.** On Windows, double-click `install.cmd` in the hub folder. On Mac or Linux, run `bash install.sh`. It does the steps below for you, one at a time, and says what it is doing: it checks Node.js, runs `npm install`, makes `.env` and opens it for your Claude key, offers to set a dashboard password, offers a first setup (with Claude Code, or a short answers file), and shows the check. It can also put a Deskcity icon on your desktop and start the hub when you sign in (both off unless you say yes). It is safe to run again: it skips every step that is done. It needs no admin rights, makes no registry changes and sends nothing anywhere except npm fetching the packages. It never reads or shows your `.env`. `install.cmd --yes` (or `bash install.sh --yes`) takes the defaults and asks nothing: it uses the example answers file as it is (made-up projects, which you edit later), sets no password and makes no shortcuts. If Node.js is missing, it tells you where to get it (nodejs.org) and stops; it never installs Node.js itself.
+
+**Step by step.** In the hub folder, install the packages:
 
 ```
 npm install
@@ -32,13 +34,13 @@ The answers file says: your name, your projects and their folders, which view th
 
 ## 2. First run
 
-Start the hub:
+Start the hub by double-clicking `start.cmd` (Mac or Linux: `bash start.sh`). It opens your browser when the hub is ready, and starts the hub again 10 seconds after a crash. Close the window to stop it. If a hub is already running from this folder, a second `start.cmd` stops with a message instead of starting another. To keep the browser from opening, run `start.cmd --no-browser` or set `DESKCITY_NO_BROWSER=1`. You can also start it by hand:
 
 ```
 npm start
 ```
 
-Open <http://localhost:3000>. If a password is set, sign in with it. The hub does not restart itself: if you stop the terminal, the hub stops.
+Open <http://localhost:3000> (or the port you set as `PORT` in `.env`). If a password is set, sign in with it. Started with `npm start`, the hub does not restart itself: if you stop the terminal, the hub stops.
 
 To check what is in place and what is missing:
 
@@ -279,12 +281,13 @@ puts the code back as it was before the last update (the old commit, or the file
 
 ## 14. Uninstalling
 
-1. Stop the hub (close the terminal that is running `npm start`).
-2. Remove the Claude Code hook lines that mention `agent-hook.mjs` from `~/.claude/settings.json`, if you installed it.
-3. If you want to keep your data, copy the `data` folder somewhere first.
-4. Delete the hub folder. Delete the backup folder (`<hub folder name>-backups`) if you do not want it.
+1. Stop the hub (close the window that is running `start.cmd` or `npm start`).
+2. If you made a desktop icon or start at sign-in with the installer, remove them: on Windows double-click `uninstall-autostart.cmd` (it removes only shortcuts named Deskcity that point at this folder). On Linux run `bash install.sh --remove-autostart`.
+3. Remove the Claude Code hook lines that mention `agent-hook.mjs` from `~/.claude/settings.json`, if you installed it.
+4. If you want to keep your data, copy the `data` folder somewhere first.
+5. Delete the hub folder. Delete the backup folder (`<hub folder name>-backups`) if you do not want it.
 
-The hub installs nothing outside its folder, except that hook and any alert subscription in the ntfy app. The kit adds no start-up (auto-start) entry; you start the hub yourself with `npm start`.
+The hub installs nothing outside its folder, except that hook and any alert subscription in the ntfy app. Start at sign-in and the desktop icon exist only if you said yes in the installer: a shortcut in your Windows Startup folder and one on your desktop, or on Linux a user service file in `~/.config/systemd/user/`. Nothing else is added, and there are no registry changes. Without them, you start the hub yourself.
 
 ## 15. Privacy: what leaves your PC
 

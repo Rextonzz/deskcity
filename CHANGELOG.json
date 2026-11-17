@@ -9,7 +9,8 @@
       "Four views of the same hub: 2D city, 3D city, Neural and plain pages.",
       "AI helpers are off until you turn them on. Spending needs your dashboard password once you set one.",
       "Nightly backups with a restore test, and updates that keep your data: npm run update.",
-      "New here? Open this folder in Claude Code and say: set up my hub. Or run npm run demo to look around with no keys."
+      "Install on Windows by double-clicking install.cmd (Mac or Linux: bash install.sh), then start it with start.cmd (or bash start.sh).",
+      "New here? Run npm run demo to look around with no keys, or open this folder in Claude Code and say: set up my hub."
     ]
   }
 ]

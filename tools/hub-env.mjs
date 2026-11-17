@@ -8,7 +8,8 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 // Where the hub is: HUB_URL if set, else this folder's .env PORT (the same setting the hub listens on), else 3000.
 export function portFromEnvFile(root = ROOT) {
   try {
-    const m = fs.readFileSync(path.join(root, ".env"), "utf8").match(/^\s*PORT\s*=\s*"?(\d{1,5})"?\s*(?:#.*)?$/m);
+    // The last PORT line wins, as it does for the hub itself (dotenv), so a second line added at the end is the one used.
+    const m = [...fs.readFileSync(path.join(root, ".env"), "utf8").matchAll(/^\s*PORT\s*=\s*"?(\d{1,5})"?\s*(?:#.*)?$/gm)].pop();
     return m && Number(m[1]) > 0 && Number(m[1]) < 65536 ? Number(m[1]) : null;
   } catch { return null; }
 }

@@ -80,7 +80,7 @@ HR's judge scores finished jobs from 0 to 100. Your thumbs up or down overrides 
 It is built as a personal tool for one owner on one PC. There is one dashboard password and one set of workers. Multi-user use is not supported.
 
 **23. Does it restart itself?**
-No. `npm start` runs it in the terminal. If you close that, it stops. After a change to server code or settings, stop it and start it again. Page changes only need a browser reload.
+Started with `npm start`, no: if you close the terminal, it stops. `start.cmd` (or `bash start.sh`) starts it again 10 seconds after a crash, and the installer can start it when you sign in. After a change to server code or settings, stop it and start it again. Page changes only need a browser reload.
 
 **24. How do I update it?**
 Close the hub, then run `npm run update` in the hub folder. It shows the plan; add `-- --yes` to do it. It works for a git checkout, and with `-- --from-zip <file>` for a downloaded zip. `npm run update -- --rollback --yes` goes back. User guide, section 13.

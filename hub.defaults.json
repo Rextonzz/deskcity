@@ -12,5 +12,5 @@
   "pipeline": { "capUsdMonth": null },
   "notify": { "enabled": false, "securityWhenOff": false },
   "backup": { "copyTo": "", "keep": 14 },
-  "kit": { "name": "Deskcity", "version": "0.1.0", "updatesUrl": "" }
+  "kit": { "name": "Deskcity", "version": "0.1.0", "updatesUrl": "https://api.github.com/repos/Rextonzz/deskcity/releases/latest" }
 }

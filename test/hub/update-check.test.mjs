@@ -96,7 +96,8 @@ test("the Admin route: no address means no request; nothing else on the page ask
 test("appInfo carries the kit name, version and data format; a copy without hub.owner.json is a plain kit", () => {
   const k = appInfo().kit;
   assert.deepEqual([k.name, k.version, k.format, k.ownersCopy], ["Deskcity", "0.1.0", 1, false]);
-  assert.equal(kitInfo().updatesUrl, "");
+  fs.writeFileSync(settingsFile, "{}"); resetHubSettings(); // the shipped default, not an earlier test's setting
+  assert.match(kitInfo().updatesUrl, /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/deskcity\/releases\/latest$/, "the kit asks the public repo's latest release");
   fs.writeFileSync(path.join(root, "hub.owner.json"), "{}");
   assert.equal(kitInfo().ownersCopy, true);
   fs.rmSync(path.join(root, "hub.owner.json"));
