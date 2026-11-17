@@ -1368,7 +1368,7 @@ async function runJobNow(id, { ask = askAs } = {}) {
   // local models cost nothing, so they need no cap (Hub kit step 2)
   if (desk.capUsdMonth == null && desk.provider !== "local") throw new Error(`${desk.id} needs a monthly cap before the hub runs it.`);
   const spent = monthSpend()[desk.id]?.usd || 0;
-  if (desk.provider !== "local" && spent >= desk.capUsdMonth) throw new Error(`${desk.id} has used its $${desk.capUsdMonth} cap this month ($${spent.toFixed(2)}).`);
+  if (desk.provider !== "local" && spent >= desk.capUsdMonth) throw new Error(`${desk.id} has used its $${desk.capUsdMonth} cap this month ($${spent < 0.01 && spent > 0 ? spent.toFixed(4) : spent.toFixed(2)}).`); // (a month under a cent keeps its digits: "$0.00" read as nothing spent)
   const gap = deskPriceGap(desk);
   if (gap) throw new Error(`The hub can't run ${desk.id}. ${gap}`);
   if (isCompat(desk.provider) && providerConfig(desk.provider).refused) throw new Error(`The hub can't run ${desk.id}. ${providerConfig(desk.provider).refused}`);

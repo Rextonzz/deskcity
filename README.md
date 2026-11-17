@@ -4,6 +4,12 @@ Deskcity is one place on your own computer to see every AI worker you use, who i
 
 Licence: MIT. It is free, and you pay your own AI providers.
 
+![The 3D city view: each project is a building, workers walk between them, and the panel on the right is Waiting for you, the list of hires, questions and money warnings that need your OK. Sample data from npm run demo.](docs/kit/images/campus-3d.png)
+
+![The Agents page: every worker with its provider, model, this month's cost and its cap. Sample data from npm run demo.](docs/kit/images/agents-page.png)
+
+*Both pictures are the sample hub from `npm run demo` (made-up data).*
+
 ## What it does
 
 - **Shows all your AI workers in one place.** Claude, Gemini, OpenAI-style and local models, and coding agents such as Claude Code.

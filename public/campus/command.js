@@ -18,6 +18,8 @@
   const offPages = () => (typeof HUB !== "undefined" && Array.isArray(HUB.offPages) ? HUB.offPages : []);
   const blocksOn = () => window.campusBlocks?.list() || (window.hubBlocks || []).filter((b) => !offPages().includes(b.page));
   const desks = () => (typeof data !== "undefined" && data?.desks) || [];
+  // A cap in words: whole dollars from $10, cents below that, and a cap under a dime keeps its digits ($0.2 was shown as "$0").
+  const capText = (c) => (c >= 10 ? String(Math.round(c)) : String(Number(Number(c).toFixed(c < 0.1 ? 3 : 2))));
   const deskName = (id) => { const d = desks().find((x) => x.id === id); return d && typeof nameOf === "function" ? nameOf(d) : id; };
   const inNeural = () => typeof neural !== "undefined" && !!neural;
   const ST = { you: "waiting on you", private: "private ready", stuck: "stuck", up: "going up", making: "being made", wait: "in line", set: "booked" };
@@ -125,7 +127,7 @@
         if (act.capPct && d.cap != null) out.push({ kind: "action", label: act.capPct.label("N"), show: (n) => `${name}: ${act.capPct.label(n ?? 50)}`, words: act.capPct.words, target: `${name} ${d.id}`, takes: "number?", run: async (n) => { const pct = Math.max(1, Math.min(100, Math.round(n ?? 50))); await act.capPct.run(d.id, pct); return `You'll hear when ${name} reaches ${pct}% of its cap`; } });
         const pz = d.paused ? act.resume : act.pause;
         if (pz) out.push({ kind: "action", label: `${pz.label()}: ${name}`, show: () => `${pz.label()}: ${name}`, words: pz.words, target: `${name} ${d.id}`, needsPassword: !!pz.needsPassword, run: async () => { if (pz.ask && !(await window.confirmBox?.(pz.ask))) return "Left as it was"; await pz.run(d.id); return d.paused ? `${name} is running again` : `${name} is paused`; } });
-        if (act.setCap) out.push({ kind: "action", label: "Set monthly cap", show: (n) => `Set ${name}'s monthly cap to $${n}${d.cap != null ? ` (now $${Math.round(d.cap)})` : ""}`, words: act.setCap.words, target: `${name} ${d.id}`, takes: "number", needsPassword: !!act.setCap.needsPassword, run: async (n) => { await act.setCap.run(d.id, n); return `${name}'s cap is now $${n} a month`; } });
+        if (act.setCap) out.push({ kind: "action", label: "Set monthly cap", show: (n) => `Set ${name}'s monthly cap to $${n}${d.cap != null ? ` (now $${capText(d.cap)})` : ""}`, words: act.setCap.words, target: `${name} ${d.id}`, takes: "number", needsPassword: !!act.setCap.needsPassword, run: async (n) => { await act.setCap.run(d.id, n); return `${name}'s cap is now $${n} a month`; } });
       }
     }
     // the rest of the menu's pages, as plain pages (they leave the campus)

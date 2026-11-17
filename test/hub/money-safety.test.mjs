@@ -17,6 +17,7 @@ const desks = [
   { id: "oa", room: "game", role: "OpenAI writer", provider: "openai", model: "gpt-x", effort: "low", capUsdMonth: 0.01, status: "active", runner: "hub" },
   { id: "loc", room: "game", role: "Local writer", provider: "local", model: "llama-test", status: "active", runner: "hub" },
   { id: "capd", room: "game", role: "Writer", provider: "claude", model: "claude-haiku-5-5", effort: "low", capUsdMonth: 1, status: "active", runner: "hub" },
+  { id: "tiny", room: "game", role: "Writer", provider: "claude", model: "claude-haiku-5-5", effort: "low", capUsdMonth: 0.001, status: "active", runner: "hub" },
   { id: "par1", room: "game", role: "Writer", provider: "claude", model: "claude-haiku-5-5", effort: "low", capUsdMonth: 5, status: "active", runner: "hub" },
   { id: "par2", room: "game", role: "Writer", provider: "claude", model: "claude-haiku-5-5", effort: "low", capUsdMonth: 5, status: "active", runner: "hub" },
   { id: "auto1", room: "game", role: "Writer", provider: "claude", model: "claude-haiku-5-5", effort: "low", capUsdMonth: 5, status: "active", runner: "hub" },
@@ -137,6 +138,12 @@ test("F2: $1 cap, $0.90 spent, five jobs at once on one desk at $0.50 each: exac
   assert.equal(refused.length, 4);
   for (const r of refused) assert.match(r.reason.message, /capd has used its \$1 cap this month \(\$1\.40\)/);
   assert.equal(Math.round(deskUsd("capd") * 100) / 100, 1.4);
+});
+
+test("a desk over a tiny cap is refused, and the message keeps the digits of what it spent (not \"$0.00\")", async () => {
+  book("desk_tiny", 0.0014);
+  const id = await job("tiny", "Say hello.");
+  await assert.rejects(() => A.runJob(id, { ask: async () => { throw new Error("must not call the AI"); } }), /tiny has used its \$0\.001 cap this month \(\$0\.0014\)/);
 });
 
 test("F2: two desks under their caps still run side by side", async () => {
