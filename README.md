@@ -175,3 +175,5 @@ Prompt injection (text a worker reads that tries to steer it) is not solved. SEC
 - `docs/kit/SETUP.md` and `docs/kit/REPORTING.md`: setup, and how each AI tool reports in.
 
 Licence: MIT (see `LICENSE`).
+
+If Deskcity is useful to you, you can buy me a coffee on [Ko-fi](https://ko-fi.com/rexton). It is free either way.
