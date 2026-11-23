@@ -1,3 +1,4 @@
+// @ts-check
 // Dashboard password storage. .env keeps only a scrypt hash (DASHBOARD_PASSWORD_HASH), never the password itself,
 // plus a random key for signing sign-in cookies (DASHBOARD_SESSION_KEY). Someone who reads .env or a backup of it
 // can't sign in with what they find, and can't forge a cookie without also knowing the session key.
@@ -7,6 +8,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config.js";
 
+/** @type {(password: any, salt: any, keylen: number, options?: crypto.ScryptOptions) => Promise<Buffer>} */
 const scrypt = promisify(crypto.scrypt);
 const PARAMS = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }; // about 0.1 s and 32 MB per check
 export const ENV_FILE = path.join(config.rootDir, ".env");
@@ -48,7 +50,10 @@ export function setEnvLines(values) {
     }
     process.env[name] = value;
   }
-  fs.writeFileSync(ENV_FILE, lines.join(eol));
+  // Temp file then rename, so a crash mid-write can't leave a cut-off .env (it holds the session key and password hash).
+  const tmp = `${ENV_FILE}.tmp`;
+  fs.writeFileSync(tmp, lines.join(eol));
+  fs.renameSync(tmp, ENV_FILE);
 }
 
 // At startup: swap a plain DASHBOARD_PASSWORD for its hash, and make the cookie-signing key if there isn't one.

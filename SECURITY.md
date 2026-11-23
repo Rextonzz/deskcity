@@ -2,6 +2,10 @@
 
 Deskcity is a personal tool for one owner on their own PC. This page says how to report a problem and, honestly, what it protects and what it does not.
 
+## Threat model
+
+Deskcity 0.2.0 targets a single user on localhost, or on a private network between your own devices (for example a phone companion). That is why one local agent token is used by design. Per-worker keys are planned before any multi-user or LAN-exposed mode; until then, do not treat the hub as safe for several people or an open network.
+
 ## Report a hole privately
 
 Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting: open this project's GitHub page, choose the **Security** tab, then **Report a vulnerability**. Only the project's maintainers can see what you send there. Say what you found, how to reproduce it, and what it lets an attacker do. Do not include real keys or other people's data. Please give a reasonable time to fix it before you share it.
@@ -16,7 +20,8 @@ This is a small project run by one person, so there is no bounty and no promised
 - **A stolen sign-in cookie.** Once a password is set, actions that spend money, run commands or write outside the hub (running or hiring paid workers, every button that calls an AI, raising caps, the local runner, applying a model change, changing folders, the alert link) need your dashboard password again, and that stays valid for 10 minutes. With no password set, this PC is trusted and is not asked; caps and hourly limits still apply. Cookies are httpOnly and SameSite.
 - **Runaway spend.** Every hub-run paid worker has a monthly cap, and the hub refuses to start a job for a worker that has used it. It runs one job per worker at a time and checks the cap again before each, so a cap can be passed by at most one job. It refuses to run a model it has no price for. Buttons that call an AI have hourly limits.
 - **Workers' text.** The text a worker returns, and the text it reads, is treated as data. Page output is escaped, links are checked so `javascript:` and `data:` addresses are not used, and job output is escaped before it is shown.
-- **Auto-run limit.** A worker's own answer can start new paid jobs only while today's count is under `agents.autoRun.perDay` (5 by default; `0` turns it off). Past that, the job waits for you.
+- **Auto-run limit.** On a fresh install, autonomous jobs and AI helpers are off (`agents.helpers.on` is `false`) until the owner turns them on. After that, a worker's own answer can start new paid jobs only while today's count is under `agents.autoRun.perDay` (5 by default; `0` turns it off). Past that, the job waits for you.
+- **Refusal pass-off (opt-in, off by default).** Off on a fresh install; turning it on needs the dashboard password. It triggers only when a provider declines a job through its own refusal or content filter, not on an ordinary error. It makes one hop by default (`agents.passOff.maxHops`), each hop checks the receiving worker's monthly spend cap, and a reason marked "serious" stops everything and asks the owner.
 - **Outbound checks from workers.** A worker's "blocker" check can read public web pages only (no private or loopback addresses, no redirects, 2 MB cap) and look at files only inside a project's mapped folders.
 - **Agent posts.** The routes tools use to report in have per-route rate caps and small body limits, a posted cost counts for at most $5 a post, cost-carrying posts are limited to 30 a minute per worker, and a worker's reported cost over 3 times its monthly cap in a day is ignored. The helper tool will not send the agent key over plain http to another machine (this PC and Tailscale are fine). Costs that sessions report are their own estimates: the hub cannot check or stop that spending.
 
@@ -30,6 +35,10 @@ This is a small project run by one person, so there is no bounty and no promised
 - **Keys in `.env`** are stored in plain text, as in most local tools.
 - **Third-party services.** Prompts go to the AI providers you choose. Phone alerts go to the ntfy server (ntfy.sh by default) only if you turn them on. Their security is theirs.
 - **Add-on parts** (YouTube pipeline, card tools and so on) run extra programs and sign-ins. They are off by default. Turn on only what you use.
+
+## Add-ons
+
+Add-ons are drop-in folders under `addons/`. An add-on runs arbitrary code with full access to the hub's Node process: your files, your keys in `.env`, your network. Install and enable only add-ons you trust and have read. All of them are off by default, enabling one needs the dashboard password, and one kill switch (`addonFolders.killSwitch` in `data/hub-settings.json`) turns them all off. Changes take effect after a restart.
 
 ## What the hub never does
 

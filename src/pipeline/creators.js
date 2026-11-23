@@ -7,42 +7,15 @@ import { ownerId, chOfLayout } from "../hub/settings.js";
 import { askJSON, obj, arr, str, oneOf } from "./claude.js";
 import { channelRules, resolvePath, writeJsonAtomic, readJson } from "./util.js";
 import { startRun } from "./runlog.js";
+import { fetchRetry } from "./fetch-retry.js";
 
 const FILE = () => resolvePath("data/stats/creators.json");
 
 // The approved roster (References/session_context_1.md, 3.1), with the short names used in titles and the log.
 // data/stats/creators.json "roster" adds to it.
-const ROSTER = {
-  Squeex: [],
-  Ludwig: ["luddy"],
-  Fuslie: [],
-  Valkyrae: ["rae"],
-  Foolish: [],
-  T10Nat: [],
-  Atrioc: ["big a"],
-  DougDoug: [],
-  Northernlion: ["nl"],
-  Sodapoppin: ["soda"],
-  Chiblee: [],
-  KKatamina: ["miyoung"],
-  xQc: [],
-  FrostPrime: [],
-  WardrobeWinter: ["wardrobe"],
-  "Joe Bartolozzi": ["joe bart", "joe"],
-  "Michael Reeves": ["reeves"],
-  ImperialHal: [],
-  Jynxzi: [],
-  OhnePixel: [],
-  Tyler1: [],
-  Falco: [],
-  Slime: [],
-  Calvin: [],
-  Joshman: [],
-  FSLR: [],
-  "The Yard": [],
-};
-// Short aliases only count as the first word of a title ("Rae" is too common elsewhere).
-const FIRST_ONLY = new Set(["rae", "nl", "soda", "joe", "big a", "luddy"]);
+const ROSTER = {}; // the kit ships no roster: add yours in data/stats/creators.json "roster"
+// Short aliases only count as the first word of a title (add a short alias here when it is a common word).
+const FIRST_ONLY = new Set([]);
 
 export const creatorData = () => readJson(FILE(), { roster: {}, verified: {} });
 function saveCreatorData(d) {
@@ -121,7 +94,7 @@ async function stills(videoId) {
   const out = [];
   for (const n of ["hq1", "hq2", "hq3", "hqdefault"]) {
     try {
-      const res = await fetch(`https://i.ytimg.com/vi/${videoId}/${n}.jpg`, { signal: AbortSignal.timeout(15000) });
+      const res = await fetchRetry(`https://i.ytimg.com/vi/${videoId}/${n}.jpg`, { signal: AbortSignal.timeout(15000) });
       if (res.ok) out.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: Buffer.from(await res.arrayBuffer()).toString("base64") } });
     } catch {}
   }
@@ -204,7 +177,7 @@ export function logFixes(clips) {
   return out;
 }
 
-// A roster creator named anywhere in free text, allowing small typos ("Lugwig says the greece line" -> "Ludwig").
+// A roster creator named anywhere in free text, allowing small typos ("Jonh says hi" -> "John").
 export function guessCreator(text) {
   const exact = canonical(text);
   if (exact) return exact;

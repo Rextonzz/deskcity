@@ -1,0 +1,1 @@
+{ "id": "browser", "name": "Browser automation (playwright)", "hubApi": 1, "entry": "index.js" }

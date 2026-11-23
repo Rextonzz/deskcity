@@ -67,3 +67,11 @@ test("hub-env refuses plain http to another machine, and allows this PC and Tail
   for (const ok of ["http://localhost:3000", "http://127.0.0.1:3000", "http://100.101.102.103:3000", "http://pc.tailnet.ts.net:3000", "https://hub.example.com"]) assert.equal(run(ok).status, 0, ok);
   assert.equal(run("http://100.200.1.1:3000").status, 1, "100.200 is outside Tailscale's range");
 });
+
+test("a chunked event over 64 KB (no Content-Length) is refused too", () => new Promise((resolve, reject) => {
+  const data = JSON.stringify({ desk: "game-artist", action: "note", summary: "x".repeat(70 * 1024) });
+  const rq = http.request({ host: "127.0.0.1", port: srv.address().port, path: "/api/agents/ingest/event", method: "POST", headers: { "Content-Type": "application/json", "Transfer-Encoding": "chunked", Authorization: `Bearer ${key}` } }, (res) => {
+    res.resume(); res.on("end", () => { try { assert.equal(res.statusCode, 413); resolve(); } catch (e) { reject(e); } });
+  });
+  rq.on("error", reject); rq.write(data.slice(0, 1000)); rq.end(data.slice(1000));
+}));

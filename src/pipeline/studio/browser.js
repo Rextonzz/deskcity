@@ -1,5 +1,6 @@
 import path from "node:path";
 import { chromeProfileDir } from "../util.js";
+import { loadPlaywright } from "../../addons/playwright.js";
 
 let contextPromise = null;
 
@@ -7,7 +8,7 @@ let contextPromise = null;
 export async function browserContext() {
   if (!contextPromise) {
     contextPromise = (async () => {
-      const { chromium } = await import("playwright");
+      const { chromium } = await loadPlaywright();
       const ctx = await chromium.launchPersistentContext(chromeProfileDir(), {
         channel: process.env.PIPELINE_CHROMIUM ? undefined : "chrome",
         executablePath: process.env.PIPELINE_CHROMIUM || undefined,
@@ -50,7 +51,7 @@ export async function withPage(fn, { shotFile, shotPrefix, shotsDir, fullPage = 
     onError?.(err);
     throw err;
   } finally {
-    await page.close();
+    await page.close().catch(() => {}); // a closed Chrome would otherwise replace the real error with "Target closed"
   }
 }
 
@@ -66,6 +67,7 @@ export const YT_SIGNED_OUT = "Chrome isn't signed in to YouTube. Open the pipeli
 
 // Studio work runs one at a time: a stats pull switching channels mid-upload would break the upload.
 let studioQueue = Promise.resolve();
+/** @template T @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 export function exclusive(fn) {
   const run = studioQueue.then(fn, fn);
   studioQueue = run.catch(() => {});

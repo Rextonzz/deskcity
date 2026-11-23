@@ -2,7 +2,7 @@
 // campus in 2D, 3D and Neural, by public/campus/blocks.js. Where it lives on the campus: public/parts/registry.js.
 import { esc, api, bindRoot } from "/stats-lib.js";
 import { safeUrl } from "/lib.js";
-import { ago, spend, confirmBox } from "/lib.js";
+import { ago, spend, confirmBox, approvalNote } from "/lib.js";
 import { scope, lifecycle } from "/parts/kit.js";
 
 export const html = `<style>
@@ -74,7 +74,7 @@ export const html = `<style>
     <label class="f">Desk<input id="lgDesk" list="deskList" placeholder="e.g. grok-scout" /></label>
     <label class="f">Room<select id="lgRoom"></select></label>
     <label class="f">Provider<select id="lgProv"><option>claude</option><option>gemini</option><option>openai</option><option>grok</option><option>deepseek</option><option>muse</option><option>local</option><option>other</option></select></label>
-    <label class="f sm:col-span-2">What happened<input id="lgSum" maxlength="200" placeholder="e.g. found 3 trending Squeex moments" /></label>
+    <label class="f sm:col-span-2">What happened<input id="lgSum" maxlength="200" placeholder="e.g. found 3 trending stream moments" /></label>
     <label class="f">Billing<select id="lgBill"><option value="subscription">subscription</option><option value="api">API (real money)</option></select></label>
   </div>
   <datalist id="deskList"></datalist>
@@ -283,7 +283,7 @@ const apiPw = (path, body) => api(path, body, { password: true, why: MERGE_WHY }
           try { await api(`/agents/job/${b.dataset.cancel}/cancel`, {}); await load(); say('<span class="text-emerald-600">Job cancelled.</span>'); } catch (err) { say(`<span class="text-red-700">${esc(err.message)}</span>`); }
         }));
         $.all("[data-run]").forEach((b) => (b.onclick = async () => {
-          if (!await confirmBox({ title: "Run this job now on the desk's model? It spends API money (within the desk's cap).", yes: "Run it", no: "Cancel" })) return;
+          if (!await confirmBox({ title: `Run this job now on the desk's model? It spends API money (within the desk's cap). ${await approvalNote(`/agents/job/${b.dataset.run}/estimate`)}`.trim(), yes: "Run it", no: "Cancel" })) return;
           b.disabled = true; b.textContent = "running…";
           try { const r = await apiPw(`/agents/job/${b.dataset.run}/run`, {}); await load(); say(`<span class="text-emerald-600">Done: ${esc(r.summary || "finished")}. The result is on the desk's floor in the campus.</span>`); }
           catch (err) { if (!err.cancelled) say(`<span class="text-red-700">${esc(err.message)}</span>`); b.disabled = false; b.textContent = "run now"; }

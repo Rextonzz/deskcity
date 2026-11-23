@@ -9,7 +9,7 @@
 //      the selves and the helpers all off, and every *_API_KEY / *_TOKEN / password removed from the child's environment,
 //      and the settings' second backup copy and the config's extra copies switched off so nothing is written outside the temp folder,
 //   3. waits for it to answer and checks: the roster loads with the same number of desks and rooms the backup holds, the
-//      spend ledger, jobs and events files parse, /api/pipeline/agents answers with those desks, the campus page returns
+//      spend ledger, jobs and events files parse, /api/agents answers with those desks, the campus page returns
 //      200 and its data calls work,
 //   4. stops the server by its pid, confirms the port is free, deletes the temp folder (unless --keep),
 //   5. prints what was checked, what a real restore still needs from you, and PASS or FAIL. Exit code 0 only on PASS.
@@ -119,18 +119,18 @@ export async function restoreTest({ backup, port = 3997, keep = false, log = () 
     const exited = hubProc.exited(), serverLog = hubProc.output();
     check("the hub started on the restored data", up, up ? `answers on port ${port}` : `no answer${exited !== null ? ` (it exited with code ${exited})` : " in 60 s"}; last output: ${serverLog.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}`);
     if (up) {
-      const ros = await get("/api/pipeline/agents/roster").catch((e) => ({ status: 0, text: e.message }));
+      const ros = await get("/api/agents/roster").catch((e) => ({ status: 0, text: e.message }));
       const rd = ros.json?.desks, rr = ros.json?.rooms;
       check("roster loads with the same desks and rooms as the backup", recorded && ros.status === 200 && rd?.length === recorded.desks.length && rr?.length === recorded.rooms.length, `backup ${recorded?.desks?.length} desks / ${recorded?.rooms?.length} rooms; restored hub ${rd?.length} / ${rr?.length}`);
-      const ov = await get("/api/pipeline/agents").catch((e) => ({ status: 0, text: e.message }));
+      const ov = await get("/api/agents").catch((e) => ({ status: 0, text: e.message }));
       const ids = new Set((recorded?.desks || []).map((d) => d.id));
       const ovDesks = ov.json?.desks;
       const unknown = Array.isArray(ovDesks) ? ovDesks.filter((d) => !ids.has(d.id)).length : -1;
-      check("/api/pipeline/agents answers with those desks", ov.status === 200 && Array.isArray(ovDesks) && unknown === 0 && (ids.size === 0 || ovDesks.length > 0), `status ${ov.status}; ${Array.isArray(ovDesks) ? `${ovDesks.length} desks, ${unknown} not in the backup` : "no desks list"}`);
+      check("/api/agents answers with those desks", ov.status === 200 && Array.isArray(ovDesks) && unknown === 0 && (ids.size === 0 || ovDesks.length > 0), `status ${ov.status}; ${Array.isArray(ovDesks) ? `${ovDesks.length} desks, ${unknown} not in the backup` : "no desks list"}`);
       const page = await get("/campus.html").catch((e) => ({ status: 0, text: e.message }));
       check("campus page returns 200", page.status === 200 && /<html|<!doctype/i.test(page.text), `status ${page.status}, ${page.text.length} bytes`);
       const hs = await get("/api/hub/settings").catch((e) => ({ status: 0 }));
-      check("campus data calls work (/api/hub/settings and /api/pipeline/agents)", hs.status === 200 && ov.status === 200 && Array.isArray(ov.json?.rooms), `settings ${hs.status}, agents ${ov.status}`);
+      check("campus data calls work (/api/hub/settings and /api/agents)", hs.status === 200 && ov.status === 200 && Array.isArray(ov.json?.rooms), `settings ${hs.status}, agents ${ov.status}`);
       const tail = hubProc.output().toLowerCase();
       check("no crash in the hub's own output", !/unhandledrejection|uncaught|cannot find module/.test(tail), "");
     }

@@ -118,6 +118,7 @@ function panel(id) {
   if (id === "pet" || id === "control::pet") return rexPanel();
   if (id === "pavilion" || id === "control::board") return standupPanel();
   if (id === "underground") return undergroundPanel();
+  if (id === "citylife") return cityLife.openPanel(); // the City life menu (citylife.js)
   if (id === "store") return storePanel();
   if (id === "org") return orgPanel();
   if (String(id).startsWith("worker:")) { const d = data.desks.find((x) => x.id === id.slice(7)); if (d) return workerPanel(d); }
@@ -217,6 +218,14 @@ const DOORS = {
   hub: ["agents", "ai", "admin"],
   leisure: ["reading"],
 };
+// Add-ons that are switched on (parts/registry.js asks once): each page becomes a door in the Control building. None on = nothing added.
+window.hubAddons?.then((list) => {
+  for (const a of list || []) (a.pages || []).forEach((pg, i) => {
+    const key = `addon-${a.id}-${i}`;
+    DOOR[key] = [pg.label, pg.href];
+    DOORS.control.push(key);
+  });
+});
 // a door to a switched-off part's page isn't drawn (HUB.offPages, from the hub settings)
 const doorOn = (key) => { const href = DOOR[key]?.[1] || ""; const page = /^\/([a-z0-9-]+)\.html$/i.exec(href)?.[1]; return !page || !(HUB.offPages || []).includes(page); };
 const doorCache = {};
@@ -346,7 +355,8 @@ function autonomyRow(d) {
 function wireAutonomy(p) {
   p.querySelectorAll("[data-auto]").forEach((b) => (b.onclick = async () => {
     const h = b.dataset.autoH, who = nameOf(data.desks.find((x) => x.id === b.dataset.auto) || { id: b.dataset.auto });
-    if (!await confirmBox({ title: `Let ${who} work on its own ${h === "am" ? "until 8 am" : `for ${h} h`}? The hub starts Claude Code in its project folder; it can edit files and run safe git and test commands, and opens draft PRs. Never force-push or merge.`, yes: "Let it work", no: "Cancel" })) return;
+    const note = await approvalNote(`/agents/session-estimate?desk=${encodeURIComponent(b.dataset.auto)}&${h === "am" ? "untilMorning=1" : `hours=${Number(h)}`}`);
+    if (!await confirmBox({ title: `Let ${who} work on its own ${h === "am" ? "until 8 am" : `for ${h} h`}? The hub starts Claude Code in its project folder; it can edit files and run safe git and test commands, and opens draft PRs. Never force-push or merge. ${note}`.trim(), yes: "Let it work", no: "Cancel" })) return;
     try { const r = await postPw("/agents/autonomy", { desk: b.dataset.auto, ...(h === "am" ? { untilMorning: true } : { hours: Number(h) }) }); toast(`${who} is on its own until ${untilTxt(r.until)}`, 6000); await load(); }
     catch (err) { if (!err.cancelled) toast(err.message, 8000); }
   }));
@@ -397,7 +407,7 @@ function wireJobs(p, id) {
     try { await api(`/agents/job/${b.dataset.cancel}/cancel`, {}); toast("Job cancelled"); await load(); } catch (err) { toast(err.message, 6000); }
   }));
   p.querySelectorAll("[data-run]").forEach((b) => (b.onclick = async () => {
-    if (!await confirmBox({ title: "Run this job now on the desk's model? It spends API money (within the desk's cap).", yes: "Run it", no: "Cancel" })) return;
+    if (!await confirmBox({ title: `Run this job now on the desk's model? It spends API money (within the desk's cap). ${await approvalNote(`/agents/job/${b.dataset.run}/estimate`)}`.trim(), yes: "Run it", no: "Cancel" })) return;
     b.disabled = true; b.textContent = "Running…";
     try { const r = await postPw(`/agents/job/${b.dataset.run}/run`, {}); toast(`Done: ${r.summary || "finished"}`, 6000); await load(); }
     catch (err) { toast(err.message, 8000); b.disabled = false; b.textContent = "Run now"; }

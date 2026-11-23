@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { jobsDir } from "./jobs.js";
+import { playwrightVersion } from "../addons/playwright.js";
 import { planCleanup, runCleanup } from "./cleanup.js";
 import { perDayOf } from "./schedule.js";
 import { fromModule } from "./channels/known.js";
@@ -129,7 +130,7 @@ export async function versions() {
     node: { version: node, ...(await support("nodejs", node)) },
     python: py ? { version: py, ...(await support("python", py)) } : { version: null },
     ffmpeg: { version: ff?.match(/ffmpeg version (\S+)/)?.[1] || ff },
-    playwright: { version: pkg.dependencies?.playwright || null },
+    playwright: { version: playwrightVersion() },
   };
 }
 

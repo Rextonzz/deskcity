@@ -69,8 +69,9 @@ export async function transcribeCut(job) {
   return words.filter((w) => w.word && w.end > 0 && w.start < length);
 }
 
-// Writes captions.ass in the job folder; the caption block's top sits at `top` px of the 1080x1920 frame.
-export function writeCaptions(job, words, { top }) {
+// Writes captions.ass in the job folder; the caption block's top sits at `top` px of the 1080x1920 frame, or, with
+// `centerY`, each caption line is centred on that height (the cam/stream seam in layout (d)).
+export function writeCaptions(job, words, { top = 0, centerY = null } = {}) {
   const r = job.data.review;
   const cutStart = job.data.cut.start;
   const lines = (r.transcript || []).filter((t) => t.speaker && t.speaker !== "?");
@@ -100,6 +101,7 @@ export function writeCaptions(job, words, { top }) {
     return `${Math.floor(cs / 360000)}:${String(Math.floor(cs / 6000) % 60).padStart(2, "0")}:${String(Math.floor(cs / 100) % 60).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
   };
   const esc = (s) => s.replace(/[{}\\]/g, "").toUpperCase();
+  const at = Number.isFinite(centerY) ? `{\\an5\\pos(540,${Math.round(centerY)})}` : "";
   const ass = [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 2", "",
     "[V4+ Styles]",
@@ -109,7 +111,7 @@ export function writeCaptions(job, words, { top }) {
     "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     // Plain white for everyone (the owner 2026-10-18: speaker colours and name tags off until the per-line speaker data
     // is reliable). Chunks still break at speaker changes, and colour()/multi are kept for turning this back on.
-    ...chunks.map((c) => `Dialogue: 0,${ts(c.start)},${ts(c.end)},Cap,,0,0,0,,${esc(c.text)}`),
+    ...chunks.map((c) => `Dialogue: 0,${ts(c.start)},${ts(c.end)},Cap,,0,0,0,,${at}${esc(c.text)}`),
   ].join("\n");
   const file = path.join(jobDir(job.id), "captions.ass");
   fs.writeFileSync(file, ass, "utf8");

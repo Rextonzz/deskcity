@@ -12,9 +12,10 @@ import { runClaudeSession } from "../leadfence.js";
 import { noteLife, selfLine, SELF_STEP } from "./selves.js";
 import { eventJobMatcher, jobScores, payFor, scoreOf } from "./quality.js";
 import { EXPERIENCES, EXP_STEP, SOURCES, experienced, runExperience } from "./experiences.js";
+import { refundTax, taxPurchase, withTax } from "./cityfund.js"; // the store tax and city fund (cityfund.js)
 import "../../../public/campus/model/homes.js"; // the Residences rules (sets globalThis.campusHomes; the campus page runs the same file)
 export { EXPERIENCES, SOURCES, experienced, fetchSource, pickFields, EXP_LIMITS, EXP_MAX_BYTES } from "./experiences.js";
-import { DIR, activeLoans, deskRoute, addRequest, appendJsonl, claudeCommand, clip, findJob, jobs, meetings, monthStart, openJobs, readEvents, readJsonl, recordEvent, roster, sendText, slug, traitOf } from "../agents.js";
+import { DIR, activeLoans, deskRoute, addRequest, appendJsonl, claudeCommand, clip, findJob, jobs, meetings, monthStart, openJobs, readEvents, readEventsAll, readJsonl, recordEvent, roster, sendText, slug, traitOf } from "../agents.js";
 
 // ---------- campus credits (play money) ----------
 // the owner, 2026-11-09: "based on how much work they do they should get paid and be able to use it". Workers earn campus
@@ -186,7 +187,7 @@ function earnings() {
   };
   const perDay = {};
   const rates = jobRatings(), scores = jobScores(), jobOf = eventJobMatcher();
-  for (const e of readEvents()) {
+  for (const e of readEventsAll()) { // archived months too: pay never shrinks when old events roll (agents.js)
     if (e.kind !== "agent event" || !e.desk) continue;
     if (e.action === "job done") { const id = jobOf(e); add(e.desk, id ? payFor(scoreOf(id, rates, scores).score) : PAY["job done"], "jobs done", e.startedAt); }
     else if (e.action === "job handed over") add(e.desk, PAY["job handed over"], "hand-offs picked up", e.startedAt);
@@ -338,7 +339,8 @@ function livingOf(id, mine, owned, care, now) {
   }
   return out;
 }
-const buyLabel = (b) => b.item === "petfood" ? `food for ${PERKS[b.for]?.label || "the pet"}` : b.item === "refund" ? `a refund for ${PERKS[b.for]?.label || "an outing"}` : PERKS[b.item]?.label || b.item;
+const buyLabel = (b) => b.item === "petfood" ? `food for ${PERKS[b.for]?.label || "the pet"}` : b.item === "refund" ? `a refund for ${PERKS[b.for]?.label || "an outing"}`
+  : b.item === "fund grant" ? "a grant from the city fund" : b.item === "casino" ? (b.cost < 0 ? "a win at the casino" : "a loss at the casino") :b.item === "apiquota" ? "an API quota" : PERKS[b.item]?.label || b.item;
 
 export function wallets(nowMs = Date.now()) {
   const earn = earnings(), buys = purchases(), now = nowMs, exps = experienced(400);
@@ -363,7 +365,10 @@ export function wallets(nowMs = Date.now()) {
       owned,
       coming,
       wish: wishList(id, has),
+      // tax lines (cityfund.js) are in spent and balance, not in the recent buys
+      tax: Math.round(mine.filter((b) => b.item === "tax").reduce((a, b) => a + (b.cost || 0), 0) * 100) / 100,
       recent: mine
+        .filter((b) => b.item !== "tax")
         .slice(-3)
         .reverse()
         .map((b) => ({ item: b.item, at: b.at, label: buyLabel(b), gift: !!b.gift })),
@@ -396,31 +401,34 @@ export function shop() {
     const w = ws[d.id];
     // a hungry pet comes first: one meal per pet, PET_FOOD credits, before any shopping
     const hungry = (w?.living || []).filter((x) => x.kind === "pet" && x.idleH >= FEED_AT_H);
-    if (hungry.length && w.balance >= PET_FOOD) {
+    if (hungry.length && w.balance >= withTax(PET_FOOD)) {
       let left = w.balance;
       for (const pet of hungry) {
-        if (left < PET_FOOD) break;
+        if (left < withTax(PET_FOOD)) break;
         const line = { at: new Date().toISOString(), desk: d.id, item: "petfood", for: pet.item, cost: PET_FOOD };
         appendJsonl(WALLET(), line);
+        const tax = taxPurchase({ buyer: d.id, item: "petfood", price: PET_FOOD, at: line.at });
+        if (tax) appendJsonl(WALLET(), tax);
         appendJsonl(CARE(), { at: line.at, desk: d.id, item: pet.item, kind: "feed", by: d.id });
-        left -= PET_FOOD;
+        left -= withTax(PET_FOOD);
         bought.push(line);
       }
       continue;
     }
     if (!w || w.balance < 2) continue;
-    const last = buys.filter((b) => b.desk === d.id).at(-1);
+    const last = buys.filter((b) => b.desk === d.id && b.item !== "fund grant" && b.item !== "casino").at(-1); // a grant or a casino result isn't a buy
     if (last && now - Date.parse(last.at) < 3600e3) continue;
     const count = (item) => [...w.owned, ...w.coming.map((c) => c.item)].filter((x) => x === item).length;
     if (Math.random() < 0.3) continue;
     // Top of the wish list first if they can afford it; saving up for it when it's close; otherwise a little treat.
     // Out of lasting buys for the week: no wish-list item (and no saving up for one); a treat is still fine. Nothing is logged.
     const lim = lastingLimit(), capped = lim != null && lastingThisWeek(d.id, buys, now) >= lim;
-    const top = capped ? null : w.wish.find((k) => PERKS[k].cost <= w.balance);
+    // prices are with the store tax (cityfund.js), so a buy never takes a wallet below zero
+    const top = capped ? null : w.wish.find((k) => withTax(PERKS[k].cost) <= w.balance);
     const saving = !capped && w.wish[0] && PERKS[w.wish[0]].cost > w.balance && PERKS[w.wish[0]].cost - w.balance <= 15;
     let item = top && Math.random() < 0.75 ? top : null;
     if (!item) {
-      const treats = Object.entries(PERKS).filter(([k, p]) => p.hours != null && p.cost <= w.balance && count(k) < p.max && (!p.friday || friday) && (!realCost(k) || store.open) && (k !== "surf" || canSurf(d, buys, now)) && (!p.experience || canExperience(d.id, buys, now)));
+      const treats = Object.entries(PERKS).filter(([k, p]) => p.hours != null && withTax(p.cost) <= w.balance && count(k) < p.max && (!p.friday || friday) && (!realCost(k) || store.open) && (k !== "surf" || canSurf(d, buys, now)) && (!p.experience || canExperience(d.id, buys, now)));
       if (saving || !treats.length) continue;
       item = treats[Math.floor(Math.random() * treats.length)][0];
     }
@@ -435,6 +443,8 @@ export function shop() {
     }
     const line = { at: new Date().toISOString(), desk: d.id, item, cost: p.cost, ...(p.hours == null ? { deliverAt: new Date(now + DELIVERY * 60000).toISOString() } : {}) };
     appendJsonl(WALLET(), line);
+    const tax = taxPurchase({ buyer: d.id, item, price: p.cost, at: line.at });
+    if (tax) appendJsonl(WALLET(), tax);
     bought.push(line);
     if (p.hours == null) noteLife(d.id, "buy", `bought ${p.label}`);
     if (item === "short") watchShort(d, { auto: true }).catch((err) => console.warn(`Campus Short: ${err.message}`));
@@ -487,6 +497,7 @@ export function storeSpend() {
     const st = String(x.step || "");
     if (st.startsWith("campus_short")) items.short.usd += x.costUsd || 0;
     else if (st.startsWith("campus_store_idea")) (items.ideas ??= { label: "store ideas", usd: 0, buys: 0 }).usd += x.costUsd || 0;
+    else if (st.startsWith("campus_district_vote")) { const v = (items.votes ??= { label: "district votes", usd: 0, buys: 0 }); v.usd += x.costUsd || 0; if (!x.error) v.buys++; } // districts.js
     else if (st === SELF_STEP || st === `desk_${SELF_STEP}`) { items.life.usd += x.costUsd || 0; if (!x.error) items.life.buys++; }
     else if (st === EXP_STEP || st === `desk_${EXP_STEP}`) exp.usd += x.costUsd || 0;
   }
@@ -516,11 +527,18 @@ export function buyExperience(d, key, { gift = false, ...deps } = {}) {
   if (!storeSpend().open) throw new Error("The store's budget is used up this month, so experiences are off the shelf.");
   const now = Date.now();
   if (!canExperience(desk.id, purchases(), now)) throw new Error(`${desk.id} already had an experience today. One a day.`);
-  if (!gift && (wallets()[desk.id]?.balance || 0) < p.cost) throw new Error(`${desk.id} can't afford ${p.label}.`);
+  if (!gift && (wallets()[desk.id]?.balance || 0) < withTax(p.cost)) throw new Error(`${desk.id} can't afford ${p.label}.`);
   const purchase = { at: new Date(now).toISOString(), desk: desk.id, item: key, cost: gift ? 0 : p.cost, ...(gift ? { gift: true } : {}) };
   appendJsonl(WALLET(), purchase);
+  const tax = purchase.cost ? taxPurchase({ buyer: desk.id, item: key, price: purchase.cost, at: purchase.at }) : null;
+  if (tax) appendJsonl(WALLET(), tax);
   const done = runExperience(desk, p.experience, deps).then((line) => {
-    if (!line.ok) appendJsonl(WALLET(), { at: new Date().toISOString(), desk: desk.id, item: "refund", for: key, cost: -purchase.cost });
+    if (!line.ok) {
+      appendJsonl(WALLET(), { at: new Date().toISOString(), desk: desk.id, item: "refund", for: key, cost: -purchase.cost });
+      // the tax comes back too
+      const back = tax ? refundTax({ buyer: desk.id, item: key, price: purchase.cost, paid: tax.cost, reason: "outing failed, refunded" }) : null;
+      if (back) appendJsonl(WALLET(), back);
+    }
     return line;
   });
   return { purchase, done };

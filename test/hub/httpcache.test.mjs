@@ -23,6 +23,7 @@ web.get("/api/hub/settings", (req, res) => res.json({ assetV: H.assetVersions(PU
 let glanceItems = [];
 web.get("/api/pipeline/glance", (req, res) => res.json({ at: new Date().toISOString(), pipeline: { items: glanceItems } })); // "at" moves on every call, like the real one
 web.get("/api/pipeline/agents", (req, res) => res.json(agents));
+web.get("/api/agents", (req, res) => res.json(agents));
 web.get("/api/pipeline/other", (req, res) => res.json({ x: 1 }));
 const srv = web.listen(0, "127.0.0.1");
 await new Promise((r) => srv.once("listening", r));
@@ -69,7 +70,7 @@ test("the version of kit.json is short, stable and follows the file", () => {
 });
 
 test("glance and agents polls: no-cache + weak ETag, 304 when unchanged, a full answer when changed; other routes untouched", async () => {
-  for (const p of ["/api/pipeline/glance", "/api/pipeline/agents"]) {
+  for (const p of ["/api/pipeline/glance", "/api/pipeline/agents", "/api/agents"]) {
     const r = await get(p);
     assert.equal(r.status, 200);
     assert.equal(r.headers["cache-control"], "no-cache", p);

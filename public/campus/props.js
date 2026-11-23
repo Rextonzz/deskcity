@@ -204,5 +204,5 @@
     e.preventDefault(); e.stopImmediatePropagation(); shut();
   }, true);
 
-  window.campusProps = { htmlFor: neuralHtml, refresh: () => load(true).then(fillPanel), isOpen, close: shut };
+  window.campusProps = { glance: () => g, htmlFor: neuralHtml, refresh: () => load(true).then(fillPanel), isOpen, close: shut };
 })();

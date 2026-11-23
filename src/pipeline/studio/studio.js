@@ -135,7 +135,9 @@ async function studioCheckNow({ channel, shot }) {
 // visibility: "private" | "public" | "schedule"
 export const uploadVideo = (opts) => (assertLiveCopy("upload the video"), exclusive(() => uploadVideoNow(opts)));
 
-async function uploadVideoNow({ channel, file, title, description, tags, thumbnail, visibility, scheduleLabels, alteredContent = false, shotsDir }) {
+// checkingFallback { labels, publishAt }: when a Public upload meets "We're still checking your content" (Publish anyway /
+// Go back), the video is scheduled for publishAt instead: never "Publish anyway" (YouTube warns of a strike or limits).
+async function uploadVideoNow({ channel, file, title, description, tags, thumbnail, visibility, scheduleLabels, checkingFallback = null, alteredContent = false, shotsDir }) {
   return withPage(async (page, shot) => {
     await openStudio(page, channel);
     await page.locator('input[type="file"]').first().setInputFiles(file);
@@ -191,8 +193,28 @@ async function uploadVideoNow({ channel, file, title, description, tags, thumbna
     await sleep(2500);
     let confirmed = false;
     let scheduleClicks = 0;
+    let fellBack = false;
     const until = Date.now() + 180000;
     while (!confirmed && Date.now() < until) {
+      // "We're still checking your content" with Publish anyway / Go back (seen 2026-11-20 on Public uploads): the box
+      // must never be left open (the video stayed private while the hub thought it was published).
+      const checking = await page.getByText(/still checking your content/i).filter({ visible: true }).count().catch(() => 0);
+      const goBack = page.getByRole("button", { name: /^\s*go back\s*$/i }).filter({ visible: true });
+      if (checking && (await goBack.count().catch(() => 0))) {
+        await shot("checking-publish");
+        if (fellBack || !checkingFallback) {
+          await goBack.first().click({ timeout: 10000 }).catch(() => {});
+          throw new Error("YouTube is still checking this video and only offered \"Publish anyway\". It's left private in Studio: publish or schedule it there once the checks are done.");
+        }
+        await goBack.first().click({ timeout: 10000 });
+        await sleep(1500);
+        await pickSchedule(page, checkingFallback.labels);
+        fellBack = true;
+        await shot("checking-scheduled");
+        await page.locator("ytcp-uploads-dialog #done-button").click({ timeout: 10000 }).catch(() => {});
+        await sleep(2500);
+        continue;
+      }
       const got = page.getByRole("button", { name: /^got it$/i });
       if (await got.first().isVisible().catch(() => false)) {
         await shot("checking-notice");
@@ -219,7 +241,7 @@ async function uploadVideoNow({ channel, file, title, description, tags, thumbna
     await shot("done");
     if (!confirmed) throw new Error("Studio never confirmed the video was saved, so it may be left as a draft. Check the screenshots in the job folder.");
     if (!videoId) throw new Error("Uploaded, but couldn't read the video ID from Studio. Check the screenshots.");
-    return { videoId };
+    return fellBack ? { videoId, visibility: "schedule", publishAt: checkingFallback.publishAt } : { videoId };
   }, { shotsDir, shotPrefix: "studio" });
 }
 
@@ -228,6 +250,8 @@ async function uploadVideoNow({ channel, file, title, description, tags, thumbna
 export const changeVisibility = (opts) => (assertLiveCopy("change visibility"), exclusive(() => changeVisibilityNow(opts)));
 
 async function changeVisibilityNow({ channel, videoId, visibility, scheduleLabels, shotsDir }) {
+  // Never guess: an unknown value used to fall through to Public.
+  if (!["schedule", "public", "private"].includes(visibility)) throw new Error(`Unknown visibility "${visibility}": nothing was changed.`);
   return withPage(async (page, shot) => {
     await openStudio(page, channel); // signs in to the right channel first
     await page.goto(`https://studio.youtube.com/video/${videoId}/edit`, { waitUntil: "domcontentloaded" });
@@ -235,7 +259,7 @@ async function changeVisibilityNow({ channel, videoId, visibility, scheduleLabel
     await page.locator("ytcp-video-metadata-visibility #select-button, ytcp-video-metadata-visibility").first().click();
     await sleep(1500);
     if (visibility === "schedule") await pickSchedule(page, scheduleLabels);
-    else await page.locator('tp-yt-paper-radio-button[name="PUBLIC"]').first().click();
+    else await page.locator(`tp-yt-paper-radio-button[name="${visibility === "public" ? "PUBLIC" : "PRIVATE"}"]`).first().click();
     await shot("picked");
     // The visibility pop-up closes with "Done" in the current Studio (it was "Save" before). Done stays greyed out
     // when nothing changed (the date was already right), so there's nothing to save.
@@ -283,14 +307,17 @@ async function pinCommentNow({ videoId, text, channel, shotsDir }) {
     await page.mouse.wheel(0, 900);
     await sleep(3000);
     // The comment is matched by its first plain words (emoji show as pictures) among the top comments.
-    const words = text.replace(/[^\p{L}\p{N}$ ]+/gu, " ").split(/\s+/).filter(Boolean).slice(0, 3);
+    const words = text.replace(/[^\p{L}\p{N}$ ]+/gu, " ").split(/\s+/).filter(Boolean).slice(0, 3).map((w) => w.toLowerCase());
+    // No plain words (all emoji or symbols) would match the very first comment on the video: stop before posting.
+    if (!words.length) throw new Error("The pinned comment has no plain words to find it by, so it wasn't posted. Pin it yourself.");
     const authorOf = async (t) => squash(await t.locator("#author-text, #header-author a, a[href^='/@']").first().innerText().catch(() => ""));
     const findMine = async () => {
       const threads = page.locator("ytd-comment-thread-renderer");
       for (let i = 0; i < Math.min(await threads.count(), 8); i++) {
         const t = threads.nth(i);
         const body = await t.innerText().catch(() => "");
-        if (words.every((w) => body.includes(w))) return t;
+        const lc = body.toLowerCase();
+        if (words.every((w) => lc.includes(w))) return t;
       }
       return null;
     };
@@ -327,7 +354,10 @@ async function pinCommentNow({ videoId, text, channel, shotsDir }) {
     await sleep(4000);
     await page.mouse.wheel(0, 900);
     await sleep(2000);
-    const pinned = await page.getByText(new RegExp(`Pinned by @?${channel.studioName.replace(/\s/g, "")}`, "i")).count();
+    // "Pinned by a channel" or "Pinned by @a channel": compared with spaces and symbols left out, like the author check.
+    const pinnedBy = await page.getByText(/Pinned by/i).allInnerTexts().catch(() => []);
+    const pinNames = [channel.studioName, channel.handle].filter(Boolean).map(squash);
+    const pinned = pinnedBy.some((t) => pinNames.some((m) => squash(t).includes(m)));
     await shot("done");
     if (!pinned) throw new Error("Comment posted but the pin couldn't be confirmed. Check the video.");
   }, { shotsDir, shotPrefix: "pin" });

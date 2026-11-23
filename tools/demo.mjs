@@ -452,7 +452,7 @@ export function seedDemo({ target, now = new Date(), seed = 20261116, appDir = A
 
   // ---------- requests ----------
   const reqLines = [];
-  const rq = (o) => { const id = R.hex(5); reqLines.push({ id, at: iso(o.at), kind: "staff", urgency: "normal", ...o, at: iso(o.at) }); return id; };
+  const rq = (o) => { const id = R.hex(5); reqLines.push({ id, kind: "staff", urgency: "normal", ...o, at: iso(o.at) }); return id; };
   const hrLine = (id, atMs, o) => reqLines.push({ id, at: iso(atMs), by: "hr", ...o });
   const ownerLine = (id, atMs, decision, note, by = owner) => reqLines.push({ id, at: iso(atMs), by, decision, note: note || null });
   // waiting on Sam: a hire, a loan, two spends and a store idea

@@ -6,8 +6,8 @@
 // the provider's own words against SERIOUS.
 // It is for false positives, not for getting round a provider's real policy. It covers desk jobs only (runJob), not the
 // video pipeline's steps, HR, the assistant, chatter or any other helper call.
-//   Settings: agents.passOff = { on } (hub.defaults.json: on; data/hub-settings.json from Admin wins). A desk can turn
-//   it off with passOff: false. Tests: HUB_PASSOFF=on|off wins over the settings files.
+//   Settings: agents.passOff = { on, maxHops } (hub.defaults.json: off, one hop; hub.owner.json can open it up, 0 = no
+//   limit; data/hub-settings.json from Admin wins). A desk can turn it off with passOff: false. Tests: HUB_PASSOFF=on|off wins over the settings files.
 import fs from "node:fs";
 import path from "node:path";
 import { hubSettings, isDemo, resetHubSettings, settingsRoot } from "../hub/settings.js";
@@ -66,13 +66,17 @@ export function compatRefusal(j, provider, label, model) {
   return new ProviderRefusal(`${label} declined the job (${refusal ? "refusal" : "content_filter"}).`, { provider, model: j.model || model, reason: refusal || "content_filter" });
 }
 
-// The switch. Missing = on. Demo mode = off.
+// The switch. Missing = off (opt-in). Demo mode = off. maxHops: how many times a refused job may be passed on (0 = no
+// limit, walk every ready service); missing or invalid = 1.
 export function passOffSettings() {
-  if (isDemo()) return { on: false };
-  let on = hubSettings().agents?.passOff?.on !== false;
+  if (isDemo()) return { on: false, maxHops: 1 };
+  const po = hubSettings().agents?.passOff;
+  let on = po?.on === true;
   const e = process.env.HUB_PASSOFF;
   if (e === "on" || e === "off") on = e === "on";
-  return { on };
+  const h = Number(po?.maxHops);
+  const maxHops = Number.isInteger(h) && h >= 0 ? h : 1;
+  return { on, maxHops };
 }
 
 // Admin card: the switch. Save from Admin; `confirmed` = the dashboard password was confirmed for this request. Turning ON
@@ -85,7 +89,7 @@ export function savePassOff(body = {}, confirmed = false) {
   const file = path.join(settingsRoot(), "data", "hub-settings.json");
   let s = {};
   try { s = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  s.agents = { ...(s.agents || {}), passOff: { on: body.on } };
+  s.agents = { ...(s.agents || {}), passOff: { ...(s.agents?.passOff || {}), on: body.on } };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
   resetHubSettings();

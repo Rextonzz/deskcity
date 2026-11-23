@@ -1,6 +1,8 @@
-# Hub: rules for Claude sessions
+# Deskcity: rules for AI coding sessions
 
-A local Node app (Express, port 3000): a dashboard and campus that track every AI worker across the owner's projects, with HR, a finance buddy and a board, and workers on Claude, Gemini, OpenAI, Grok, DeepSeek or local models.
+Deskcity — A local-first hub and visual campus for every AI worker: jobs, caps, approvals, and cross-model hand-offs.
+
+A local Node app (Express, port 3000): a dashboard and campus that track every AI worker across the owner's projects, with HR, a finance buddy and a board, and workers on cloud or local AI models.
 
 ## First time here?
 If `data/hub-settings.json` doesn't exist, the hub isn't set up yet: follow `docs/kit/SETUP.md` with the owner.

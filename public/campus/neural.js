@@ -5,7 +5,7 @@
 // every step under the node you picked. Failed steps are marked with ✕ and a count as well as colour.
 // Ideas from span-tree viewers (collapse each sub-agent and hand-off into one node that opens in place, a time list
 // beside the tree; docs/handoffs/neural-view.md). No outside code: the radial layout is a leaf-weighted tree below.
-// Data: /api/pipeline/agents/trace?job=<id> or ?desk=<id>, asked every 5 seconds while the view is open.
+// Data: /api/agents/trace?job=<id> or ?desk=<id>, asked every 5 seconds while the view is open.
 // Classic script, same global scope as the other campus parts (uses esc, data, nameOf, titleOf, PROVIDER, BRAIN_ST, brainOpen).
 const NEURAL_ICON = { job: "📌", desk: "🏢", session: "🖥️", turn: "💬", subagent: "🤝", more: "⋯", step: "" };
 const NEURAL_STATUS = { done: "✓ done", failed: "✕ failed", cancelled: "– cancelled", taken: "◔ working", queued: "○ waiting" };
@@ -95,7 +95,7 @@ async function neuralPoll() {
   if (typeof neuralReplayHold === "function" && neuralReplayHold()) return; // a replay plays the tree it started with
   try {
     const q = n.job ? `job=${encodeURIComponent(n.job)}` : `desk=${encodeURIComponent(n.desk)}`;
-    const r = await fetch(`/api/pipeline/agents/trace?${q}`).then((x) => (x.ok ? x.json() : x.json().catch(() => ({})).then((b) => Promise.reject(new Error(x.status === 401 ? "Sign in again." : b.error || "The hub didn't answer.")))));
+    const r = await fetch(`/api/agents/trace?${q}`).then((x) => (x.ok ? x.json() : x.json().catch(() => ({})).then((b) => Promise.reject(new Error(x.status === 401 ? "Sign in again." : b.error || "The hub didn't answer.")))));
     if (neural !== n || n.mode !== "tree") return;
     n.fail = 0;
     if (!n.job && r.focus) n.job = r.focus;

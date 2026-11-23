@@ -244,7 +244,11 @@ export function updateCard(id, patch = {}) {
     c.lists = patch.lists.map((l) => String(l).trim().slice(0, 40)).filter(Boolean).slice(0, 10);
     for (const l of c.lists) if (!col.lists.includes(l)) col.lists.push(l);
   }
-  if (patch.paid !== undefined) c.paid = patch.paid === "" || patch.paid == null ? null : Number(patch.paid);
+  if (patch.paid !== undefined) {
+    const paid = patch.paid === "" || patch.paid == null ? null : Number(patch.paid);
+    if (paid !== null && !(Number.isFinite(paid) && paid >= 0)) throw new Error("Paid must be a number, 0 or more.");
+    c.paid = paid;
+  }
   save(col);
   return { ok: true };
 }
@@ -443,7 +447,7 @@ export async function searchNames(q) {
   return (await scryfall(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`))?.data?.slice(0, 12) || [];
 }
 export async function printingsOf(name) {
-  const r = await scryfall(`https://api.scryfall.com/cards/search?unique=prints&order=released&q=${encodeURIComponent(`!"${name}"`)}`);
+  const r = await scryfall(`https://api.scryfall.com/cards/search?unique=prints&order=released&q=${encodeURIComponent(`!"${String(name).replace(/"/g, " ")}"`)}`);
   return (r?.data || []).slice(0, 60).map(printing);
 }
 
@@ -483,18 +487,28 @@ export async function importFolder() {
   }
   const out = [];
   for (const f of files) {
-    const text = fs.readFileSync(path.join(dir, f), "utf8");
-    if (/\.json$/i.test(f)) {
-      const r = importStorePrices(JSON.parse(text));
+    // One bad file is set aside in failed/ and reported; it must not block the files after it or be retried every 10 minutes.
+    try {
+      const text = fs.readFileSync(path.join(dir, f), "utf8");
+      if (/\.json$/i.test(f)) {
+        const r = importStorePrices(JSON.parse(text));
+        fs.mkdirSync(path.join(dir, "done"), { recursive: true });
+        fs.renameSync(path.join(dir, f), path.join(dir, "done", f));
+        out.push({ file: f, rows: r.rows, matched: r.matched, notFound: r.missing.length, missing: r.missing.slice(0, 20) });
+        continue;
+      }
+      const r = await importCsv(text);
       fs.mkdirSync(path.join(dir, "done"), { recursive: true });
       fs.renameSync(path.join(dir, f), path.join(dir, "done", f));
-      out.push({ file: f, rows: r.rows, matched: r.matched, notFound: r.missing.length, missing: r.missing.slice(0, 20) });
-      continue;
+      out.push({ file: f, rows: r.rows, added: r.added, merged: r.merged, notFound: r.notFound.length });
+    } catch (err) {
+      try {
+        fs.mkdirSync(path.join(dir, "failed"), { recursive: true });
+        fs.renameSync(path.join(dir, f), path.join(dir, "failed", f));
+        fs.writeFileSync(path.join(dir, "failed", `${f}.error.txt`), String(err.message || err));
+      } catch {}
+      out.push({ file: f, error: String(err.message || err).split("\n")[0] });
     }
-    const r = await importCsv(text);
-    fs.mkdirSync(path.join(dir, "done"), { recursive: true });
-    fs.renameSync(path.join(dir, f), path.join(dir, "done", f));
-    out.push({ file: f, rows: r.rows, added: r.added, merged: r.merged, notFound: r.notFound.length });
   }
   return out;
 }

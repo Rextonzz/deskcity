@@ -1,0 +1,17 @@
+{
+  // npm run typecheck: TypeScript reads the JavaScript as it is (no build step, nothing emitted). Only files that start
+  // with // @ts-check are checked, so the check can grow one file at a time; shapes shared across files (a Job, the
+  // pipeline config) are written as JSDoc types in src/types.js.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "strict": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["server.js", "src/**/*.js", "tools/**/*.mjs"]
+}

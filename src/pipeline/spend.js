@@ -1,3 +1,4 @@
+// @ts-check
 // The spend ledger (clean-up I7, the owner 2026-11-13): data/spend.jsonl, one line per AI call or agent event that
 // has a cost: { at, desk, room, model, provider, costUsd, kind } (plus billing when an event says "subscription").
 // Worker caps, the finance numbers and the HUD / fountain / CEO tower read this month's total from here, so they no
@@ -55,9 +56,11 @@ const rowOf = (x) => ({
   ...(x.billing ? { billing: x.billing } : {}),
   ...(x.posted ? { posted: true } : {}), // a cost a session reported itself (agent key), not one the hub measured
   ...(x.costDefault ? { costDefault: true } : {}), // no price on file: booked at the default rate
+  ...(x.batch ? { batch: true } : {}), // sent at the half batch price (costUsd is the discounted cost)
 });
 
 // A paid call came back with no cost the hub could work out; agents.js records the event (it imports this file).
+/** @type {(info: any) => void} */
 let costUnknown = () => {};
 export const setCostUnknownHook = (fn) => { costUnknown = fn; };
 export const noteCostUnknown = (info) => { try { costUnknown(info); } catch (err) { console.warn(`Cost unknown note: ${err.message}`); } };
@@ -83,7 +86,12 @@ function ensureSeeded(now = new Date()) {
     .map(rowOf)
     .filter((r) => !isPet(r))
     .sort((a, b) => a.at.localeCompare(b.at));
-  writeFileAtomic(FILE(), rows.map((r) => JSON.stringify(r) + "\n").join(""));
+  try {
+    writeFileAtomic(FILE(), rows.map((r) => JSON.stringify(r) + "\n").join(""));
+  } catch (err) {
+    seeded = false; // a full disk once shouldn't skip the seed for the rest of the run
+    throw err;
+  }
 }
 
 let writes = 0;

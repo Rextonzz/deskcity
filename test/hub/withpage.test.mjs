@@ -1,10 +1,11 @@
 // withPage and uploadPageCheck (src/pipeline/studio/browser.js) against a stand-in Chrome: no real browser is opened.
-import test from "node:test";
+import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hub } from "./helper.mjs";
+import { loadPlaywright } from "../../src/addons/playwright.js";
 
 const { root } = await hub();
 fs.writeFileSync(path.join(root, "pipeline.config.json"), JSON.stringify({ chromeProfileDir: "chrome-profile" }));
@@ -14,8 +15,12 @@ const standIn = () => ({
   async screenshot({ path: p, fullPage }) { log.push(["shot", path.basename(p), Boolean(fullPage)]); },
   async close() { log.push(["close"]); },
 });
-const { chromium } = await import("playwright");
-chromium.launchPersistentContext = async () => ({ on() {}, newPage: async () => standIn() });
+// Skipped (not failed) when the browser add-on is not installed and core has no playwright either.
+let chromium = null;
+try { ({ chromium } = await loadPlaywright()); } catch {}
+const skip = chromium ? false : "playwright is not installed (npm run addons:install)";
+const test = Object.assign((name, fn) => nodeTest(name, { skip }, fn), { beforeEach: nodeTest.beforeEach.bind(nodeTest) });
+if (chromium) chromium.launchPersistentContext = async () => ({ on() {}, newPage: async () => standIn() });
 const { withPage, uploadPageCheck, YT_SIGNED_OUT } = await import("../../src/pipeline/studio/browser.js");
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "withpage-"));
 test.beforeEach(() => (log.length = 0));

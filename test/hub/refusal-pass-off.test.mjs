@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { hub, ROOMS, DESKS, app } from "./helper.mjs";
 
 // fake keys, present before the hub's config loads (the helper then removes them from the environment, the config keeps them)
@@ -21,8 +22,12 @@ const desks = [
 const { A, root, data } = await hub({ rooms: ROOMS, desks });
 process.env.OPENAI_API_KEY = "test-not-real"; // after the helper cleared the keys: openai is then "ready"
 // the hub runs no unpriced model (money safety B1), so gpt-test gets a price
-fs.writeFileSync(`${root}/data/hub-settings.json`, JSON.stringify({ providers: { openai: { prices: { "gpt-test": { in: 1, out: 2 } } } } }));
-(await import(app("src/hub/settings.js"))).resetHubSettings();
+fs.writeFileSync(`${root}/data/hub-settings.json`, JSON.stringify({ providers: { openai: { prices: { "gpt-test": { in: 1, out: 2 } } } }, agents: { passOff: { on: true, maxHops: 0 } } })); // pass-off on, no hop limit (the kit default is off and one hop; tests below change that)
+const setPassOff = (po) => { const f = `${root}/data/hub-settings.json`; const s = JSON.parse(fs.readFileSync(f, "utf8")); s.agents = { passOff: po }; fs.writeFileSync(f, JSON.stringify(s)); resetSettings(); };
+const file = (rel) => fileURLToPath(app(rel));
+const SETTINGS = await import(app("src/hub/settings.js"));
+const resetSettings = () => SETTINGS.resetHubSettings();
+await resetSettings();
 const R = await import(app("src/pipeline/refusal.js"));
 const SPEND = await import(app("src/pipeline/spend.js"));
 const CLAUDE = await import(app("src/pipeline/claude.js"));
@@ -212,20 +217,65 @@ test("j2: askGemini and askOpenAI throw the refusal from a canned response (no n
   } finally { globalThis.fetch = realFetch; }
 });
 
-test("settings: the switch defaults on, the env wins, saving ON needs the password and OFF does not", () => {
-  delete process.env.HUB_PASSOFF;
-  assert.equal(R.passOffSettings().on, true);
-  process.env.HUB_PASSOFF = "off";
-  assert.equal(R.passOffSettings().on, false);
-  delete process.env.HUB_PASSOFF;
-  assert.equal(R.savePassOff({ on: false }, false).status, 200);
-  assert.equal(R.passOffSettings().on, false);
-  assert.equal(R.savePassOff({ on: true }, false).status, 403);
-  assert.equal(R.passOffSettings().on, false);
-  assert.equal(R.savePassOff({ on: true }, true).status, 200);
-  assert.equal(R.passOffSettings().on, true);
-  assert.equal(R.savePassOff({ on: "yes" }, true).status, 400);
-  process.env.HUB_PASSOFF = "on";
+test("settings: the switch defaults off with one hop, the env wins, saving ON needs the password and OFF does not, maxHops is kept", async () => {
+  const f = `${root}/data/hub-settings.json`;
+  const saved = fs.readFileSync(f, "utf8");
+  try {
+    const s = JSON.parse(saved); delete s.agents; fs.writeFileSync(f, JSON.stringify(s)); await resetSettings(); // a fresh kit install: only hub.defaults.json (and the owner file, see below) speak
+    delete process.env.HUB_PASSOFF;
+    const own = fs.existsSync(file("hub.owner.json")) ? JSON.parse(fs.readFileSync(file("hub.owner.json"), "utf8")).agents?.passOff : null; // the kit has no owner file
+    if (!own) assert.deepEqual(R.passOffSettings(), { on: false, maxHops: 1 });
+    setPassOff({ on: false, maxHops: "x" });
+    assert.equal(R.passOffSettings().maxHops, 1);
+    setPassOff({ on: true, maxHops: -2 });
+    assert.equal(R.passOffSettings().maxHops, 1);
+    setPassOff({ on: true, maxHops: 3 });
+    assert.deepEqual(R.passOffSettings(), { on: true, maxHops: 3 });
+    process.env.HUB_PASSOFF = "off";
+    assert.equal(R.passOffSettings().on, false);
+    delete process.env.HUB_PASSOFF;
+    assert.equal(R.savePassOff({ on: false }, false).status, 200);
+    assert.equal(R.passOffSettings().on, false);
+    assert.equal(R.passOffSettings().maxHops, 3, "maxHops kept when saving OFF");
+    assert.equal(R.savePassOff({ on: true }, false).status, 403);
+    assert.equal(R.passOffSettings().on, false);
+    assert.equal(R.savePassOff({ on: true }, true).status, 200);
+    assert.deepEqual(R.passOffSettings(), { on: true, maxHops: 3 }, "maxHops kept when saving ON");
+    assert.equal(R.savePassOff({ on: "yes" }, true).status, 400);
+  } finally { fs.writeFileSync(f, saved); await resetSettings(); process.env.HUB_PASSOFF = "on"; }
+});
+
+test("settings: hub.owner.json keeps this hub's own behaviour (on, no hop limit) over the kit defaults", { skip: !fs.existsSync(file("hub.owner.json")) && "no hub.owner.json in this copy (the kit)" }, () => {
+  const defaults = JSON.parse(fs.readFileSync(file("hub.defaults.json"), "utf8")).agents.passOff;
+  assert.deepEqual(defaults, { on: false, maxHops: 1 });
+  const owner = JSON.parse(fs.readFileSync(file("hub.owner.json"), "utf8")).agents.passOff;
+  assert.deepEqual({ ...defaults, ...owner }, { on: true, maxHops: 0 });
+});
+
+test("k: with on and maxHops 1, a refused job is passed on once and then stops", async () => {
+  setPassOff({ on: true, maxHops: 1 });
+  try {
+    const { ask, calls } = standIn({ claude: "SAFETY", gemini: "OTHER" });
+    const id = await job("pa");
+    await assert.rejects(() => A.runJob(id, { ask }), /declined/);
+    assert.deepEqual(calls.map((c) => c.provider), ["claude", "gemini"]); // third provider (openai) never asked
+    assert.equal(jobOf(id).status, "failed");
+    assert.equal(actions("passed on", id).length, 1);
+    assert.equal(actions("refusal stopped", id).length, 1);
+    const [q] = asksFor(id);
+    assert.match(q.why, /hop limit \(1\) was reached/);
+    assert.match(q.role, /refused by claude, gemini/);
+  } finally { setPassOff({ on: true, maxHops: 0 }); }
+});
+
+test("k2: maxHops 0 means no limit, and the first hop still works under maxHops 1", async () => {
+  setPassOff({ on: true, maxHops: 1 });
+  try {
+    const { ask, calls } = standIn({ claude: "SAFETY" });
+    const id = await job("pa");
+    assert.equal((await A.runJob(id, { ask })).status, "done");
+    assert.deepEqual(calls.map((c) => c.provider), ["claude", "gemini"]);
+  } finally { setPassOff({ on: true, maxHops: 0 }); }
 });
 
 test("a desk saved from the form keeps and changes passOff", () => {

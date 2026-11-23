@@ -42,6 +42,11 @@ export const html = `<section class="bg-white rounded-xl border border-slate-200
 </section>
 
 
+<section id="liveBox" class="hidden bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+  <div class="flex items-center gap-2 flex-wrap"><h2 class="font-semibold flex-1">Live clipping</h2><button id="liveAuto" class="hidden px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm"></button><button id="liveToggle" class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm"></button></div>
+  <div id="liveText" class="text-sm text-slate-600 space-y-1"></div>
+</section>
+
 <section id="channels" class="grid gap-4 sm:grid-cols-2"></section>
 
 <details id="ttCatch" class="hidden bg-white rounded-xl border border-slate-200 p-4">
@@ -95,10 +100,14 @@ export async function mount(root, opts = {}) {
   // Live on YouTube, not on TikTok yet: app videos get a Post button.
   async function loadTikTok() {
     const d = await api("/tiktok/catchup").catch(() => null);
+    // Clips whose video file is gone can't be posted (2026-11-23: 12 made while TikTok was off had been cleaned up);
+    // they're counted in one line instead of each showing a Post button that can only fail.
+    const all = d ? d.jobs : [], gone = all.filter((j) => j.hasFile === false).length;
+    if (d) d.jobs = all.filter((j) => j.hasFile !== false);
     const n = d ? d.jobs.length : 0;
     $("ttCatch").classList.toggle("hidden", !n);
     if (!n) return;
-    $("ttCount").textContent = `${n} live on YouTube, not on TikTok`;
+    $("ttCount").textContent = `${n} live on YouTube, not on TikTok${gone ? ` (${gone} more can't be posted: their video files are gone)` : ""}`;
     const name = (c) => channelInfo[c]?.name || c;
     const yt = (v) => `<a class="text-red-700 hover:underline" target="_blank" href="https://youtube.com/shorts/${esc(v)}">YouTube</a>`;
     const jobRow = (j) => `<li class="flex items-center gap-2 flex-wrap"><span class="flex-1 min-w-0">${esc(j.title || j.videoId)} <span class="text-slate-500">· ${esc(name(j.channel))} · ${yt(j.videoId)}</span>${j.error ? `<span class="block text-xs text-red-700">Last try: ${esc(j.error)}</span>` : ""}</span>${j.status === "waiting" ? `<span class="text-slate-500">Posting…</span>` : j.hasFile ? `<button data-ttpost="${esc(j.id)}" class="px-3 py-1.5 rounded-lg bg-red-600 text-white">Post to TikTok</button>` : `<span class="text-slate-500">File gone from the PC</span>`}</li>`;
@@ -411,6 +420,45 @@ export async function mount(root, opts = {}) {
 
 
   loadJobs();
+  // Live clipping (src/pipeline/livewatch.js): who's being watched, what's recording, and the on/off switch.
+  async function loadLive() {
+    let st;
+    try { st = await call("/live"); } catch { return; }
+    const ch = st.channels?.[0];
+    $("liveBox").classList.toggle("hidden", !ch);
+    if (!ch) return;
+    $("liveToggle").textContent = ch.on ? "Turn off" : "Turn on";
+    $("liveToggle").onclick = async () => { await api("/live", { channel: ch.channel, on: !ch.on }); loadLive(); };
+    // Auto-approve (2026-11-20): live clips that passed the Neon check skip your review for N hours (password to turn on).
+    const until = ch.autoApproveUntil ? new Date(ch.autoApproveUntil) : null;
+    $("liveAuto").classList.toggle("hidden", !(ch.on && ch.neonCheck));
+    $("liveAuto").textContent = until ? "Stop auto-approve" : `Auto-approve ${ch.autoApproveHours || 8} h`;
+    $("liveAuto").onclick = async () => {
+      if (!until && !confirm(`For ${ch.autoApproveHours || 8} hours, live clips that pass the Neon check will go public without your review. Turn it on?`)) return;
+      await api("/live/auto-approve", { channel: ch.channel, hours: until ? 0 : ch.autoApproveHours || 8 });
+      loadLive();
+    };
+    const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? "just now" : `${m} min ago`; };
+    const lines = [];
+    if (!st.ytdlp) lines.push("⚠ yt-dlp isn't installed, so it can't see streams. In PowerShell: <code>winget install -e --id yt-dlp.yt-dlp</code>, then restart the hub.");
+    lines.push(ch.on ? `On. Clips scored ${ch.minScore}/10 or better are pooled for an hour, then only the best ${ch.bestPerHour} come to you for review; approved clips go public at once, at most ${ch.perHour} an hour.` : "Off. Streams aren't recorded.");
+    if (ch.pool) {
+      const mins = Math.max(0, Math.round((Date.parse(ch.pool.sendsAt) - Date.now()) / 60000));
+      lines.push(`▣ This hour's pool: ${ch.pool.clips} clip${ch.pool.clips === 1 ? "" : "s"}; the best ${ch.bestPerHour} go to review in ${mins} min (or when the stream ends). <button class="ml-1 px-2 py-0.5 rounded-lg border border-slate-300 bg-white text-sm" id="livePoolSend">Send best now</button>`);
+    }
+    if (ch.on && ch.neonCheck) lines.push(`Each clip is watched by Gemini (${esc(ch.neonModel || "Neon")}) first; one with no hook, long silence or a cut-off ending is skipped (Unskip puts it back).`);
+    if (ch.on && until) lines.push(`✅ <b>Auto-approve on</b> until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}: clips that pass the check post without your review.`);
+    for (const c of ch.creators) {
+      if (c.recording) lines.push(`● <b>${esc(c.name)}</b>: recording "${esc(c.recording.title || "")}", ${c.recording.minutes} min so far, ${c.recording.pieces} piece${c.recording.pieces === 1 ? "" : "s"} sent to the inbox.`);
+      else if (c.checked) lines.push(`○ <b>${esc(c.name)}</b>: ${c.checked.live ? "live" : esc(c.checked.why || "not live")} (checked ${ago(c.checked.at)}).`);
+      else lines.push(`○ <b>${esc(c.name)}</b>: not checked yet.`);
+    }
+    $("liveText").innerHTML = lines.map((l) => `<p>${l}</p>`).join("");
+    const send = $("livePoolSend");
+    if (send) send.onclick = async () => { send.disabled = true; try { await api("/live/pool/send", { channel: ch.channel }); } finally { loadLive(); loadJobs(); } };
+  }
+  life.later(loadLive, 500);
+  life.every(() => document.visibilityState === "visible" && loadLive(), 15000);
   life.every(() => document.visibilityState === "visible" && loadJobs(), 4000);
   life.on(document, "visibilitychange", () => document.visibilityState === "visible" && loadJobs());
   life.later(loadTikTok, 800);

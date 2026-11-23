@@ -12,6 +12,7 @@ import { hubSettings } from "../hub/settings.js";
 import { costOf, aiSettings } from "./ai.js";
 import { isRealKey } from "../config.js";
 import { compatRefusal } from "./refusal.js";
+import { fetchRetry } from "./fetch-retry.js";
 
 export const COMPAT = {
   openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY", schema: "json_schema" },
@@ -35,6 +36,7 @@ export const KEY_HOSTS = {
   DEEPSEEK_API_KEY: "api.deepseek.com",
   META_API_KEY: "api.meta.ai",
 };
+const protoOf = (u) => { try { return new URL(String(u)).protocol; } catch { return null; } };
 const hostOf = (u) => { try { return new URL(String(u)).hostname.toLowerCase(); } catch { return null; } };
 // What's wrong with a provider's settings (`own`: its entry under "providers" in the hub settings), or null. Used by
 // the hub before any request and by the setup tool before it saves the answers.
@@ -47,6 +49,9 @@ export function providerProblem(provider, own = {}) {
   const url = own.baseUrl || base.baseUrl, host = hostOf(url);
   if (!host) return `providers.${provider}.baseUrl "${String(url).slice(0, 80)}" isn't a web address.`;
   if (own.key) return null; // an inline key is the owner's own choice for this address
+  // A built-in key never goes over plain http, even to the right host.
+  if (Object.hasOwn(KEY_HOSTS, keyEnv) && protoOf(url) !== "https:")
+    return `${base.label} would send ${keyEnv} over plain http. Use an https address.`;
   if (Object.hasOwn(KEY_HOSTS, keyEnv) && KEY_HOSTS[keyEnv] !== host)
     return `${base.label} would send ${keyEnv} to ${host}, but that key may only go to ${KEY_HOSTS[keyEnv]}. For another address, set providers.${provider}.keyEnv to a key name of its own (not ${Object.keys(KEY_HOSTS).join(", ")}) and put that key in .env.`;
   return null;
@@ -94,10 +99,11 @@ export async function askOpenAI({ provider, model, system, content, schema, effo
       response_format: mode === "json_schema" ? { type: "json_schema", json_schema: { name: "answer", strict: true, schema } } : { type: "json_object" },
       ...(effort && provider === "openai" && effort !== "medium" ? { reasoning_effort: effort === "max" || effort === "xhigh" ? "high" : effort } : {}),
     };
-    const r = await fetch(`${c.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    // A network drop is tried again (fetch-retry.js); a local server that isn't running is reported straight away.
+    const r = await fetchRetry(`${c.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST", headers: { "content-type": "application/json", ...(c.key && !c.free ? { authorization: `Bearer ${c.key}` } : {}) },
       body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
-    }).catch((err) => { throw new Error(provider === "local" ? `The local model server at ${c.baseUrl} isn't answering (is Ollama or LM Studio running?): ${err.message}` : `${c.label}: ${err.message}`); });
+    }, { tries: provider === "local" ? 1 : 4 }).catch((err) => { throw new Error(provider === "local" ? `The local model server at ${c.baseUrl} isn't answering (is Ollama or LM Studio running?): ${err.message}` : `${c.label}: ${err.message}`); });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { const e = new Error(`${c.label} ${r.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`); e.status = r.status; throw e; }
     return j;
@@ -113,7 +119,7 @@ export async function askOpenAI({ provider, model, system, content, schema, effo
   try { answer = JSON.parse(String(msg).replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { throw new Error(`${c.label} didn't answer in JSON.`); }
   const u = j.usage || {};
   const usage = {
-    inputTokens: (u.prompt_tokens || 0) - (u.prompt_tokens_details?.cached_tokens || u.prompt_cache_hit_tokens || 0),
+    inputTokens: Math.max(0, (u.prompt_tokens || 0) - (u.prompt_tokens_details?.cached_tokens || u.prompt_cache_hit_tokens || 0)),
     outputTokens: u.completion_tokens || 0,
     cacheReadTokens: u.prompt_tokens_details?.cached_tokens || u.prompt_cache_hit_tokens || 0,
   };

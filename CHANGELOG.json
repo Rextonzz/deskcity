@@ -1,5 +1,32 @@
 [
   {
+    "at": "2026-11-23T23:00:00Z",
+    "title": "Deskcity 0.2.0",
+    "changes": [
+      "Safer defaults: refusal pass-off (a refused job handed to another model) is off on a fresh install, turning it on needs your dashboard password, and it stops after one hop.",
+      "The installer asks whether to set a dashboard password, with Yes as the default. Unattended installs (--yes) skip it and print a clear warning until you run npm run set-password.",
+      "Drop-in add-ons: a folder under addons/ adds its own pages and routes. Each one is off until you switch it on, and one kill switch turns them all off.",
+      "Browser automation is now the optional addons/browser add-on, so a plain install is smaller. npm run addons:install installs the add-ons you use, and npm run update does it for you.",
+      "The agents API has its own address, /api/agents. The old /api/pipeline/agents address still works for now and says where it moved.",
+      "DESKCITY_JOBS_DISABLED=1 stops the background jobs, but the nightly backup keeps running. The old name PIPELINE_DISABLED=1 still works.",
+      "An approval line: costly jobs and sessions the hub starts on its own wait for your OK.",
+      "When a job fails because a worker couldn't reach something (permission denied, needs a sign-in), the hub files one question for you naming the worker and the reason, instead of failing quietly. Retry is still the button under Problems.",
+      "Questions with choices get one button per choice.",
+      "A busy desk can pass new jobs to a helper desk (off unless you set it).",
+      "Half-price switches for hub-run desks (prompt caching and batch), off until you turn them on.",
+      "Jobs ride out a short network drop instead of failing.",
+      "Long hand-offs arrive whole, or are refused with a reason.",
+      "Campus: a city fund from the store tax that the board votes on, a City fund panel, and votes that show in Waiting for you. Workers can found their own districts by a vote. All play money.",
+      "City life on the campus: a menu with a switch per effect. Power lines show how close workers are to their caps, cones mark stuck buildings, vans carry hand-offs in 3D, busy buildings stay lit after hours, workers walk in each morning, a sunbeam follows your pet and idle workers sit in a diner. All from what the campus already knows, no AI cost.",
+      "City life, part 2: shipping docks, a cargo barge, a library that shows the last backup, tubes that carry what is waiting for you, a crane over projects with recent reviews, balloon banners for spend and alerts, a blimp with the newest changes, and weather routines (umbrellas in rain, fewer people out in snow, the pet naps indoors). They read one small new address that returns counts only.",
+      "A campus casino where workers can play a slot game you add with their play credits. Off until you turn it on, never real money and no AI calls.",
+      "The 3D campus re-checks its quality setting when the graphics chip changes, and Waiting and In progress cards no longer shrink to a thin line.",
+      "Fixes from a full security and code review: sign-in, hand-offs, restore, the updater and the Admin page.",
+      "README and user guide: what caps cover (hard caps stop the paid jobs the hub runs itself; coding agents that run outside the hub report their own cost estimates), and how add-ons work.",
+      "For contributors: npm run lint and npm run typecheck, which CI runs first."
+    ]
+  },
+  {
     "at": "2026-11-17T20:00:00Z",
     "title": "Deskcity 0.1.0: first release",
     "changes": [
@@ -10,7 +37,9 @@
       "AI helpers are off until you turn them on. Spending needs your dashboard password once you set one.",
       "Nightly backups with a restore test, and updates that keep your data: npm run update.",
       "Install on Windows by double-clicking install.cmd (Mac or Linux: bash install.sh), then start it with start.cmd (or bash start.sh).",
-      "New here? Run npm run demo to look around with no keys, or open this folder in Claude Code and say: set up my hub."
+      "New here? Run npm run demo to look around with no keys, or open this folder in Claude Code and say: set up my hub.",
+      "This was the first public kit.",
+      "It was cut from a month of private development."
     ]
   }
 ]

@@ -1,3 +1,4 @@
+// @ts-check
 // Shared file readers and writers. Imports only node: modules, so the Claude Code hook (tools/agent-hook.mjs) can use
 // it without loading .env or config. Every helper is an `export function` declaration so import cycles are safe.
 import fs from "node:fs";
@@ -17,12 +18,22 @@ export function readJson(file, fallback, { strict = false } = {}) {
 
 // Write to a temp file, then rename over the real one (code review 2026-10-22): a crash mid-write leaves the old file
 // whole instead of an empty or cut-off one. Unique temp name so two writers never share it.
+// Windows briefly locks a file while Defender or the indexer scans it, so a rename over it fails with EPERM/EBUSY/EACCES for
+// a moment (2026-11-22: a live piece failed at intake with "A file is locked"). Retry a few times, a short pause apart.
+export function renameRetry(from, to, tries = 6) {
+  for (let i = 0; ; i++) {
+    try { return fs.renameSync(from, to); } catch (err) {
+      if (i >= tries - 1 || !["EPERM", "EBUSY", "EACCES"].includes(err?.code)) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40 * (i + 1));
+    }
+  }
+}
 export function writeFileAtomic(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   fs.writeFileSync(tmp, text);
   try {
-    fs.renameSync(tmp, file);
+    renameRetry(tmp, file);
   } catch (err) {
     fs.rmSync(tmp, { force: true });
     throw err;
@@ -130,6 +141,7 @@ export function keepLastLines(file, n) {
 
 // Every file under dir (full paths, folders walked in listing order). match: a RegExp tested on the file name; skip: a
 // Set of folder names not to enter. A folder that is missing or can't be read is skipped, not thrown.
+/** @param {string} dir @param {{ match?: RegExp, skip?: Set<string> }} [opts] @param {string[]} [out] @returns {string[]} */
 export function listFiles(dir, { match, skip } = {}, out = []) {
   let ents;
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
@@ -142,6 +154,7 @@ export function listFiles(dir, { match, skip } = {}, out = []) {
 }
 // Count the lines of each file in paths (a file that can't be read is skipped). labelOf(path) names the group the
 // lines are added to in `by`; no label counts the file without a group. Returns { files, lines, by }.
+/** @param {string[]} paths @param {(path: string) => string | null} [labelOf] */
 export function countLines(paths, labelOf = () => null) {
   const by = {};
   let files = 0, lines = 0;

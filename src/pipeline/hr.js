@@ -1,3 +1,4 @@
+// @ts-check
 // HR desk (agent dashboard step 4, docs/agent-dashboard-scope.md).
 // Project leads ask for staff (agents.js requests). HR doesn't design teams: it checks each new request against the
 // room's current work, the roster (no duplicate desks) and the budget, then picks the cheapest provider, model and
@@ -78,7 +79,7 @@ const SCHEMA = obj({
   note: str, // short, for the owner
 });
 
-const SYSTEM = `You are HR for ${OWNER()}'s AI staff. Project leads (PLs) ask for the staff they need; you do not design teams.
+const SYSTEM = () => `You are HR for ${OWNER()}'s AI staff. Project leads (PLs) ask for the staff they need; you do not design teams.
 Your job for each request:
 1. Verify alignment. Does the role fit what that room is working on now (its open to-dos and recent activity)? Is there already a desk on the roster that does this (then verdict "reuse" with its id)? Does the budget ask fit the room's spend and the API credit left?
 2. Pick the cheapest provider, model and effort that can do the job well:
@@ -220,7 +221,7 @@ const TEAM = obj({
   relay: obj({ rooms: arr(str), message: str }), // a message or standing rule to pass on to these rooms' teams
   reply: str, // one or two sentences for the owner
 });
-const TEAM_SYSTEM = `You are HR for ${OWNER()}'s AI staff. ${OWNER()} gave you a job. If it asks you to build, staff or hire a team (or some desks), design the team; otherwise set isTeam false and leave seats empty.
+const TEAM_SYSTEM = () => `You are HR for ${OWNER()}'s AI staff. ${OWNER()} gave you a job. If it asks you to build, staff or hire a team (or some desks), design the team; otherwise set isTeam false and leave seats empty.
 If instead it asks you to tell, let know, or pass something on to one or more teams (a message, a permission, a rule), put their room ids in relay.rooms and the message in relay.message, rewritten as a clear standing note to that team in ${OWNER()}'s voice ("${OWNER()} says: ..."), keeping every condition they gave. Otherwise leave relay.rooms empty.
 Rules:
 - Use the room the job names when it's on the roster (its id). If the project has no room, give a short new id (lowercase, dashes) and name, and pick its district: Creative (video, art, writing), Games, or Tools (everything else).
@@ -232,12 +233,12 @@ Rules:
 - why: one sentence on what the seat is for. reply: one or two sentences for ${OWNER()}.`;
 
 const STORE_SCHEMA = obj({ verdict: oneOf("approve", "decline"), label: str, icon: str, cat: oneOf("desk", "home", "yard", "wear", "pets"), cost: num, note: str });
-const STORE_SYSTEM = `You are HR for ${OWNER()}'s cozy AI office campus. A worker suggested a new item for the Campus Mart, the little shop where workers spend credits they earn (about 20 to 40 a week) on cosmetic things for their desk, home, yard, outfit, or a pet.
+const STORE_SYSTEM = () => `You are HR for ${OWNER()}'s cozy AI office campus. A worker suggested a new item for the Campus Mart, the little shop where workers spend credits they earn (about 20 to 40 a week) on cosmetic things for their desk, home, yard, outfit, or a pet.
 Approve it unless it's not family-friendly, names a real brand or person, isn't a cosmetic thing, or the Mart already sells the same thing. Tidy the label ("a ukulele"), keep one fitting emoji, pick the category, and set a fair price in credits next to similar things already sold (small trinkets 3 to 8, furniture 10 to 30, big dreams 40 to 60). note: one short line for ${OWNER()}.`;
 // Job checks give each finished job its quality score, which sets its pay (agents/quality.js). Up to JOB_BATCH jobs in
 // one call, at most JOB_CHECKS_DAY a day.
 const JOB_CHECKS_DAY = 20, JOB_BATCH = 10;
-const JOB_SYSTEM = `You are HR for ${OWNER()}'s AI staff, scoring finished jobs; the score sets the worker's pay. For each job, ask one strict question: would ${OWNER()} act on this result, or does it move their project forward? Reward concrete, specific, correct-looking work (a plan, findings, a draft, a decision). ${JUDGE_SCALE} Be strict: when in doubt, score lower. why: one short line. If the work looks wrong or shallow because the task was too hard for that desk's model, start why with "Model too weak:" so the desk can be moved up a tier (${OWNER()}'s rule: a cheap model that produces garbage costs more than the right one). Answer for every job id given.`;
+const JOB_SYSTEM = () => `You are HR for ${OWNER()}'s AI staff, scoring finished jobs; the score sets the worker's pay. For each job, ask one strict question: would ${OWNER()} act on this result, or does it move their project forward? Reward concrete, specific, correct-looking work (a plan, findings, a draft, a decision). ${JUDGE_SCALE} Be strict: when in doubt, score lower. why: one short line. If the work looks wrong or shallow because the task was too hard for that desk's model, start why with "Model too weak:" so the desk can be moved up a tier (${OWNER()}'s rule: a cheap model that produces garbage costs more than the right one). Answer for every job id given.`;
 async function planTeams(run, state) {
   const jobsForHr = openJobs({ desk: "hr" }).filter((j) => !(state.askedJobs2 || []).includes(j.id)).slice(0, 3);
   const out = [];
@@ -246,7 +247,7 @@ async function planTeams(run, state) {
     try {
       const r = roster();
       const roomsList = r.rooms.map((x) => `${x.id} (${x.name}): ${r.desks.filter((d) => d.room === x.id && d.status !== "retired").map((d) => `${d.id}${d.lead ? " [lead]" : ""}`).join(", ") || "no desks"}`).join("\n");
-      const a = await hrAsk({ name: "hr_review", system: TEAM_SYSTEM, content: `Job from ${OWNER()}:\n${j.text}\n\nRooms and desks on the roster:\n${roomsList}`, schema: TEAM, effort: "low" });
+      const a = await hrAsk({ name: "hr_review", system: TEAM_SYSTEM(), content: `Job from ${OWNER()}:\n${j.text}\n\nRooms and desks on the roster:\n${roomsList}`, schema: TEAM, effort: "low" });
       const relayRooms = (a.relay?.rooms || []).filter((id) => r.rooms.some((x) => x.id === id));
       if (!a.isTeam && relayRooms.length && a.relay.message) {
         // Pass it on (the owner 2026-11-09: "let R&D know they can ..."): a text to each room's lead, and a standing note
@@ -317,7 +318,7 @@ async function planTeams(run, state) {
 
 // The assistant's second look at HR's pick (the owner 2026-11-11).
 const SECOND = obj({ agree: bool, reuseDesk: str, note: str });
-const SECOND_SYSTEM = `HR has reviewed a staff request and made a pick. Give a second opinion. Check three things: is an idle worker already a fit (then put its desk id in reuseDesk); is there a cheaper provider or model on this hub that would do the job as well; is the monthly cap sensible for the work described. Set agree to true when HR's pick is sound, even if you'd have chosen slightly differently. When you disagree, say why in one or two plain sentences in note, for ${OWNER()}. reuseDesk is "" unless you'd reuse someone.`;
+const SECOND_SYSTEM = () => `HR has reviewed a staff request and made a pick. Give a second opinion. Check three things: is an idle worker already a fit (then put its desk id in reuseDesk); is there a cheaper provider or model on this hub that would do the job as well; is the monthly cap sensible for the work described. Set agree to true when HR's pick is sound, even if you'd have chosen slightly differently. When you disagree, say why in one or two plain sentences in note, for ${OWNER()}. reuseDesk is "" unless you'd reuse someone.`;
 
 async function review(trigger) {
   try { await ensureAssistant(); } catch (err) { console.warn(`Assistant seat: ${err.message}`); }
@@ -352,7 +353,7 @@ async function review(trigger) {
     for (const req of fresh.slice(0, 10)) {
       run.step(`request ${req.id}`);
       try {
-        const a = await hrAsk({ name: "hr_review", system: SYSTEM, content: context(req, overview, credits), schema: SCHEMA, effort: "low" });
+        const a = await hrAsk({ name: "hr_review", system: SYSTEM(), content: context(req, overview, credits), schema: SCHEMA, effort: "low" });
         // Never above the lead's ask, nor above the API credit left for that provider (when the balance is set).
         const left = credits.providers[a.provider]?.left;
         const cap = Math.max(0, Math.min(a.capUsdMonth || 0, req.budgetAsk ?? Infinity, left ?? Infinity));
@@ -360,7 +361,7 @@ async function review(trigger) {
         let second = "";
         try {
           const o = await askAssistant({
-            system: SECOND_SYSTEM,
+            system: SECOND_SYSTEM(),
             schema: SECOND,
             content: `${context(req, overview, credits)}\n\nHR's pick: ${JSON.stringify({ verdict: a.verdict, provider: a.provider, model: a.model, effort: a.effort, capUsdMonth: cap, reuseDesk: a.reuseDesk || "", note: a.note })}`,
           });
@@ -384,7 +385,7 @@ async function review(trigger) {
       try {
         const a = await hrAsk({
           name: "hr_review",
-          system: STORE_SYSTEM,
+          system: STORE_SYSTEM(),
           content: `Idea from ${req.from}: ${req.item.icon} ${req.item.label} (${req.item.cat}, asks ${req.item.cost} credits). Why: ${req.why || "-"}\nAlready in the Mart (label, price): ${Object.values(
             PERKS,
           )
@@ -409,7 +410,7 @@ async function review(trigger) {
       const todo = (ai ? scoreCandidates() : []).slice(0, Math.max(0, Math.min(JOB_BATCH, JOB_CHECKS_DAY - usedToday)));
       if (todo.length) {
         run.step(`job check x${todo.length}`);
-        const a = await hrAsk({ name: "hr_review", system: JOB_SYSTEM, content: scoreBatchContent(todo), schema: SCORE_SCHEMA, effort: "low" });
+        const a = await hrAsk({ name: "hr_review", system: JOB_SYSTEM(), content: scoreBatchContent(todo), schema: SCORE_SCHEMA, effort: "low" });
         const lines = [];
         for (const x of a.ratings || []) {
           const j = todo.find((t) => t.id === x.job);
@@ -420,7 +421,7 @@ async function review(trigger) {
         writeJsonAtomic(STATE(), { ...flaggedThisMonth(), checksDay: today, checks: usedToday + todo.length });
       }
     } catch (err) { run.warn(`job checks: ${err.message}`); }
-    if (over.length) writeJsonAtomic(STATE(), { ...flagged, overCap: [...flagged.overCap, ...over.map((d) => d.id)] });
+    if (over.length) { const st = flaggedThisMonth(); writeJsonAtomic(STATE(), { ...st, overCap: [...(st.overCap || []), ...over.map((d) => d.id)] }); } // a fresh read, so the job-check counter written above isn't wiped
     for (const d of over) {
       const detail = `$${d.monthUsd} API this month against a $${d.capUsdMonth} cap. Pause it, raise the cap, or move it to a cheaper model.`;
       tellOwner({ title: `HR: ${d.id} is over its monthly cap`, detail, source: "hr" });

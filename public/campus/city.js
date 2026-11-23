@@ -1305,7 +1305,7 @@ function drawStore(r, t) {
 let martCat = "all", martQ = "", martSources = null, martAddOpen = false;
 const MART_CATS = [["all", "All"], ["desk", "🖥️ Desk"], ["home", "🏠 Home"], ["yard", "🌳 Yard"], ["wear", "🎩 Wear"], ["pets", "🐾 Pets"], ["treats", "☕ Treats"], ["fun", "🕹️ Fun"], ["outings", "🎟️ Outings"]];
 function storePanel() {
-  if (!martSources) { martSources = []; fetch("/api/pipeline/agents/store/sources").then((r) => (r.ok ? r.json() : [])).then((s) => { martSources = Array.isArray(s) ? s : []; if (martSources.length && document.getElementById("martQ")) storePanel(); }).catch(() => {}); }
+  if (!martSources) { martSources = []; fetch("/api/agents/store/sources").then((r) => (r.ok ? r.json() : [])).then((s) => { martSources = Array.isArray(s) ? s : []; if (martSources.length && document.getElementById("martQ")) storePanel(); }).catch(() => {}); }
   const nm = (id) => nameOf(data.desks.find((x) => x.id === id) || { id });
   const ws = Object.entries(data.wallets || {}), buys = recentBuys().slice(0, 8);
   const coming = ws.flatMap(([id, w]) => (w.coming || []).map((c) => ({ id, ...c })));

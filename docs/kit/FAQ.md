@@ -17,7 +17,7 @@ Windows is the system it is built and used on every day. The kit ships a GitHub 
 No. Claude Code makes setup easier ("set up my hub") and reports in automatically through a hook. Without it, set up with `node tools/setup.mjs --answers <file>` (see the user guide). Other tools report in through the rule block in `docs/kit/REPORTING.md`.
 
 **5. Which models work?**
-Workers the hub runs can use Claude, Gemini, OpenAI-style models, Grok, DeepSeek, Muse (Meta), and local models through Ollama or LM Studio. You list the model names you have; the hub does not assume names because they change often. Tools that run outside the hub (Claude Code, Codex, Antigravity, Gemini CLI, Cursor, chat apps) report in by hook, command or a pasted line. A Claude key is needed for HR and the finance buddy.
+Workers the hub runs can use Claude, Gemini, OpenAI-style models, Grok, DeepSeek, Muse (Meta), and local models through Ollama or LM Studio. You list the model names you have; the hub does not assume names because they change often. Tools that run outside the hub (coding agents, chat apps) report in by hook, command or a pasted line. A Claude key is needed for HR and the finance buddy.
 
 **6. Why a city?**
 It is one way to see the same data: projects as buildings, workers walking between them, spend on a meter wall. If you do not like it, use Neural (a web of workers) or Pages (plain web pages). Every device can switch any time.
@@ -40,6 +40,9 @@ On the worker's desk card, on the meter wall in the campus, or in the command ba
 
 **10a. Will it spend money by itself?**
 Not on a new install. The hub's own helpers (HR, the shared assistant, worker chatter, growing personalities, and workers starting jobs by themselves) are off until you turn on the "AI helpers" switch in Admin, even if your keys are in `.env`. When you turn them on you also set a daily dollar limit (it starts at $1). Jobs you run yourself still work with the switch off, and they cost what the worker's cap allows. With no dashboard password set, anything on this PC can start them; set one to be asked.
+
+**10b. Can I make it ask before a costly job?**
+Yes, it does by default. A new job the hub runs on an API that it estimates at over $0.25, or a coding-agent session the hub starts that it estimates at over $5 (counted at API prices), waits in Waiting for you until you approve it. Change or turn off the lines in Admin, "Approval line". It cannot hold coding-agent sessions you open yourself. See section 7 of the user guide.
 
 **11. What leaves my PC?**
 Your prompts and job text go to the AI provider each worker uses (that is how an AI worker works). Phone alerts are off until you turn them on in Admin; once on, they go to the ntfy server (ntfy.sh by default). The campus fonts are served by the hub itself (no font service is contacted). Only if you set a town, the campus asks Open-Meteo for live weather (your town's coordinates go to that service). Some parts reach other sites you ask for (the YouTube pipeline, card prices, deal watch). The hub has no telemetry and sends nothing to its authors. Check `docs/kit/` and your own `.env` before turning on add-ons.

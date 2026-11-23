@@ -48,7 +48,7 @@ export const MODULES = [
   // ---- bigger add-ons ----
   { id: "youtube", name: "YouTube and TikTok pipeline", group: "Add-ons", about: "Makes, schedules and uploads Shorts, with stats. The heaviest part. The author's own tool, not supported: it reaches sites through their unofficial pages, which can change or break.",
     pages: ["pipeline", "stats", ...channelStatsPages(), "stats-tiktok", "youtube-settings", "queue", "calendar"],
-    routes: ["/jobs", "/stats", "/channels", "/upload", "/tiktok", "/queue", "/calendar", "/batch", "/corrections", "/health", "/admin/schedule", "/admin/posting-stats", "/admin/episode-check", "/admin/downloads", "/admin/download"],
+    routes: ["/jobs", "/stats", "/channels", "/upload", "/tiktok", "/queue", "/calendar", "/batch", "/corrections", "/health", "/admin/schedule", "/admin/posting-stats", "/admin/episode-check", "/admin/downloads", "/admin/download", "/live"],
     timers: ["Upload worker"], requires: ["python/stats.py"], needs: { programs: ["ffmpeg", "Python", "Chrome"], keys: ["GEMINI_API_KEY", "ELEVENLABS_API_KEY"] } },
   { id: "cards", name: "Trading cards", group: "Add-ons", about: "Your card collection, prices, deal watch, paper matches, deck ideas and MTG Arena. The author's own tool, not supported: it reaches sites through their unofficial pages, which can change or break.",
     pages: ["collection", "cards", "deals", "matches", "deckideas", "arena"],
@@ -104,6 +104,7 @@ export function offPages(s) {
   try { return [...new Set([...off, ...fs.readdirSync(PUBLIC).filter((f) => f.endsWith(".html")).map((f) => f.slice(0, -5)).filter((p) => !owned.has(p))])]; } catch { return off; }
 }
 export function routeModule(p) {
+  p = String(p || "").toLowerCase(); // Express and Windows both ignore capitals, so /api/pipeline/Collection must be gated too
   let best = null, len = -1;
   for (const m of MODULES) for (const r of m.routes || []) if ((p === r || p.startsWith(`${r}/`)) && r.length > len) { best = m; len = r.length; }
   return best;
@@ -121,7 +122,7 @@ export function gateRoute(req, res, next, s) {
 export const pageGate = (req, res, next) => gatePage(req, res, next);
 export function gatePage(req, res, next, s) {
   const name = /^\/([a-z0-9-]+)\.html$/i.exec(req.path)?.[1];
-  if (name && offPages(s).includes(name)) return res.redirect("/campus.html");
+  if (name && offPages(s).includes(name.toLowerCase())) return res.redirect("/campus.html");
   next();
 }
 // The front door, "/" (server.js): a tiny page that goes to this device's pick from the campus's View picker

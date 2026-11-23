@@ -47,11 +47,29 @@ Server changes (`server.js`, `src/`) need a restart of the hub. Page changes (`p
 
 ## Add a part
 
-A part is an optional switch. Add an entry to the list in `src/hub/modules.js` with its `id`, `name`, `group`, `about`, and what it owns: `pages` (`public/<name>.html`), `routes` (server routes under `/api/pipeline`), `timers` and `needs`. One switch then turns all of it off. Add it to a preset only if it should be on by default there. `node tools/setup.mjs --parts` lists the result.
+A part is an optional switch. Add an entry to the list in `src/hub/modules.js` with its `id`, `name`, `group`, `about`, and what it owns: `pages` (`public/<name>.html`), `routes` (server routes under `/api/pipeline`; write an agents route as `/agents/...`, it is served at `/api/agents/...`, the canonical prefix since 0.2.0, and `/api/pipeline/agents/...` is a deprecated alias kept for 0.2.0, answering with a `Deprecation: true` header), `timers` and `needs`. One switch then turns all of it off. Add it to a preset only if it should be on by default there. `node tools/setup.mjs --parts` lists the result.
 
 ## Add a page block
 
 A page block is a hub page that works both as its own page and inside the campus. Put its working part in `public/parts/<page>.js` (see `public/parts/todo.js` and the shared helpers in `public/parts/kit.js`), list it in `public/parts/registry.js`, and give it a building in `public/campus/panels.js`. A block belongs to a part, so switching the part off hides the block. The tests in `test/hub/page-blocks.test.mjs` check the registry, the doors and the parts.
+
+## Write an add-on
+
+An add-on is a folder `addons/<id>/` with a manifest `addon.json` and an entry file. It is off until the owner switches it on (needs the dashboard password), and no code in it is read before that.
+
+```json
+{
+  "id": "my-addon",
+  "name": "My add-on",
+  "hubApi": 1,
+  "entry": "index.js",
+  "clientPanel": "panel.js",
+  "pages": [{ "label": "My page", "href": "/addons/my-addon/page.html" }],
+  "timers": ["My timer"]
+}
+```
+
+`id` matches `[a-z0-9-]{1,40}` and equals the folder name; `hubApi` must be `1`; `entry` and `clientPanel` stay inside the folder. The entry's default export may offer `routes(router, helpers)`, mounted under `/api/addons/<id>/`, and `start({ every, timerOn })` for timers (not started when `DESKCITY_JOBS_DISABLED=1`). `helpers.dataDir` is `data/addons/<id>/`, made on first use. See `addons/README.md` and `src/addons/loader.js`.
 
 ## Send a change
 

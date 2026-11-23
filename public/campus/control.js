@@ -22,12 +22,23 @@ const isNarrow = () => innerWidth < 700;
 // queued on a desk the hub runs, not already being run by a hand-off or a lead's brief (those start by themselves
 // within a minute or two). Over-cap desks show under Problems instead.
 function runNowItems() {
-  return (data.jobs || []).filter((j) => j.status === "queued" && Date.now() - Date.parse(j.at) > 3 * 60000).map((j) => ({ j, d: data.desks.find((x) => x.id === j.desk) }))
+  // a job the hub holds over the owner's approval line shows at once (nothing will start it by itself)
+  return (data.jobs || []).filter((j) => j.status === "queued" && (j.held || Date.now() - Date.parse(j.at) > 3 * 60000)).map((j) => ({ j, d: data.desks.find((x) => x.id === j.desk) }))
     .filter(({ d }) => d && d.runner === "hub" && d.status === "active" && !(d.capUsdMonth != null && (d.monthUsd || 0) >= d.capUsdMonth))
-    .map(({ j, d }) => ({ id: j.id, kind: "run", room: j.room, at: j.at, from: d.id, role: String(j.text || "").split("\n")[0].slice(0, 120), why: `${nameOf(d)} is ready; the hub runs it when you tap Run now${d.capUsdMonth != null ? ` (cap $${d.capUsdMonth}/month, $${(d.monthUsd || 0).toFixed(2)} used)` : ""}.`, desk: d.id }));
+    .map(({ j, d }) => ({ id: j.id, kind: "run", held: j.held || null, room: j.room, at: j.at, from: d.id, role: String(j.held ? "Waiting for your OK: " : "").concat(String(j.text || "").split("\n")[0]).slice(0, 140), why: j.held ? `${j.held.priceKnown === false ? "No price is known for it" : `Estimated at about $${Number(j.held.usd).toFixed(3).replace(/0$/, "")}`}, over your $${j.held.line} approval line. ${j.held.basis || ""} Approve to run it once, or cancel.` : `${nameOf(d)} is ready; the hub runs it when you tap Run now${d.capUsdMonth != null ? ` (cap $${d.capUsdMonth}/month, $${(d.monthUsd || 0).toFixed(2)} used)` : ""}.`, desk: d.id }));
+}
+// Open city fund proposals (2026-11-23: they never showed here, so one sat a day waiting for a vote only the owner
+// could still give). Fetched with the fund panel's own route, at most once a minute; the owner's vote decides alone.
+let ctlFund = [], ctlFundAt = 0;
+function fundItems() {
+  if (Date.now() - ctlFundAt > 60000) {
+    ctlFundAt = Date.now();
+    api("/agents/cityfund").then((f) => { const next = f.proposals || []; if (JSON.stringify(next.map((p) => p.id)) !== JSON.stringify(ctlFund.map((p) => p.id))) { ctlFund = next; renderControl(); } }).catch(() => {});
+  }
+  return ctlFund.map((p) => ({ id: p.id, kind: "fund", room: p.room || "hub", at: p.at, from: p.by, role: `City fund: ${p.amount} credits, ${p.reason}`, why: `Board ${(p.members || []).join(", ")}: ${(p.votes || []).map((v) => `${v.by} ${v.vote}`).join(", ") || "no votes yet"}. Your vote decides on its own.` }));
 }
 function waitingItems() {
-  return [...(inbox || []).filter((q) => q.status !== "new" || q.kind === "ask"), ...runNowItems()].map((q) => ({ ...q, age: Date.now() - Date.parse(q.at) })).sort((a, b) => b.age - a.age);
+  return [...(inbox || []).filter((q) => q.status !== "new" || q.kind === "ask"), ...runNowItems(), ...fundItems()].map((q) => ({ ...q, age: Date.now() - Date.parse(q.at) })).sort((a, b) => b.age - a.age);
 }
 const roomName = (id) => roomLabel(id, data.rooms.find((r) => r.id === id)?.name);
 const roomHue = (id) => `hsl(${hueOf(id)},60%,62%)`;
@@ -50,7 +61,10 @@ function jobWhy(j, d) {
   const room = projects.find((p) => p.id === d.room), lastEv = room?.lastByDesk?.[d.id];
   let line, tone = "ok";
   if (j.status === "taken") {
-    const quiet = !lastEv || Date.now() - Date.parse(lastEv.startedAt) > 3600e3;
+    // quiet: nothing from the worker for an hour, counted from when it took the job if that was later (2026-11-20: a job
+    // taken 15 minutes ago showed "no sign of life for over an hour" because the worker's last report was older)
+    const since = Math.max(lastEv ? Date.parse(lastEv.startedAt) : 0, Date.parse(j.updatedAt || j.at) || 0);
+    const quiet = Date.now() - since > 3600e3;
     line = quiet ? `⚠ taken ${age(j.updatedAt || j.at)} ago, no sign of life for over an hour` : `working · last: ${lastEv.action || "update"} ${ago(lastEv.startedAt)}`;
     if (quiet) tone = "warn";
   } else {
@@ -200,6 +214,33 @@ function ctlPulse(where, calm) {
   requestAnimationFrame(tick);
 }
 
+// Choices in a question (the owner 2026-11-20): "1 = yes (my pick, reply 1), 2 = no (reply 2)", "1) A 2) B", "A: x, B: y".
+// Two or more markers in order (1, 2, 3... or A, B, C...). Returns { stem, options: [{ key, label, pick, no }] } or null.
+// pick: the asker marked it ("my pick", "recommended"); no: it reads as a no (no, reject, hold, don't, skip), sent as
+// declined so a plain yes/no ask still closes the same way as Reject.
+function askOptions(text) {
+  const s = String(text || ""), re = /(^|[\s,;(:])([1-9]|[A-F])\s*(?:=|\)|\.|:)\s+/g, marks = [];
+  let m;
+  while ((m = re.exec(s))) marks.push({ key: m[2], at: m.index + m[1].length, start: m.index + m[0].length });
+  const seq = (k) => (/\d/.test(k) ? Number(k) : k.charCodeAt(0) - 64);
+  let best = [];
+  for (let i = 0; i < marks.length; i++) {
+    if (seq(marks[i].key) !== 1) continue;
+    const run = [marks[i]];
+    for (let j = i + 1; j < marks.length; j++) if (/\d/.test(marks[j].key) === /\d/.test(run[0].key) && seq(marks[j].key) === run.length + 1) run.push(marks[j]);
+    if (run.length > best.length) best = run;
+  }
+  if (best.length < 2) return null;
+  const options = best.map((mk, i) => {
+    const raw = s.slice(mk.start, i + 1 < best.length ? best[i + 1].at : s.length);
+    const pick = /my pick|recommend|\bpick\b|★/i.test(raw);
+    let label = raw.replace(/\([^)]*(reply|pick|recommend)[^)]*\)/gi, "").replace(/\s+/g, " ").replace(/[\s,;.?]+$/, "").trim();
+    if (i === best.length - 1) label = label.replace(/\.\s.*$/, "").trim(); // the last one: stop at the end of its sentence
+    return { key: mk.key, label: label.slice(0, 60) || mk.key, pick, no: /^(no|reject|decline|hold|don'?t|skip|not now|stop)\b/i.test(label) };
+  });
+  return { stem: s.slice(0, best[0].at).replace(/[\s:?]+$/, "").trim(), options };
+}
+
 async function decideMany(ids, decision) {
   let ok = 0;
   for (const id of ids) { try { await postPw(`/agents/request/${id}/decide`, { decision }); ok++; } catch (err) { toast(err.message, 6000); break; } }
@@ -233,9 +274,9 @@ function renderControl() {
   const typing = ctlAsk.id && document.activeElement?.closest?.(".ctl-askbox") && w.contains(document.activeElement);
   if (!typing) w.innerHTML = `<div class="ctl-head"><span>${wait.length ? "⏳" : "✓"} Waiting for you · <b>${wait.length}</b></span><button class="ctl-min" data-t="wait">${waitOpen ? "–" : "+"}</button></div>
     ${waitOpen ? `<div class="ctl-body">${wait.length ? wait.map((q) => `<div class="ctl-item">
-      <div class="ctl-meta">${q.kind === "run" ? '<span title="a job waiting for Run now">▶</span>' : `<input type="checkbox" data-pick="${esc(q.id)}"${ctlPicked.has(q.id) ? " checked" : ""} aria-label="Select">`}<b style="color:${roomHue(q.room)}">${esc(roomName(q.room))}</b> <span class="${q.age > 864e5 ? "late" : ""}">⏳ ${ageText(q.age)}</span>${q.pr ? ` · <span>PR #${Number(q.pr) || ""}</span>` : ""}</div>
+      <div class="ctl-meta">${q.kind === "run" ? '<span title="a job waiting for Run now">▶</span>' : q.kind === "fund" ? '<span title="a city fund vote">🏛️</span>' : `<input type="checkbox" data-pick="${esc(q.id)}"${ctlPicked.has(q.id) ? " checked" : ""} aria-label="Select">`}<b style="color:${roomHue(q.room)}">${esc(roomName(q.room))}</b> <span class="${q.age > 864e5 ? "late" : ""}">⏳ ${ageText(q.age)}</span>${q.pr ? ` · <span>PR #${Number(q.pr) || ""}</span>` : ""}</div>
       <div class="ctl-text">${esc(q.role)}</div>${q.why ? `<div class="ctl-sub">${esc(String(q.why).slice(0, 140))}</div>` : ""}${[["🔎", "Code review", q.review], ["🛡️", "Security review", q.securityReview]].filter((x) => x[2]).map(([ic, nm, v]) => `<div class="ctl-sub" style="color:${v.verdict === "concerns" ? "#f0b45a" : "#9fd8a8"}">${ic} ${nm} (${esc(v.model || v.by)}): ${v.verdict === "looks-safe" ? "nothing found" : v.verdict === "concerns" ? `has concerns: ${esc((v.concerns || [])[0] || v.summary || "")}` : "can't tell from the diff"}${v.shown < v.files ? " (partial)" : ""}</div>`).join("")}${q.board ? `<div class="ctl-sub" style="color:${q.board.ok ? "#9fd8a8" : "#f0b45a"}">🗳 ${q.board.ok ? `The board approves this at ${esc(new Date(q.board.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))} unless someone objects (${esc(q.board.members.join(", "))}). You can decide first.` : `Needs you: ${esc(q.board.why)}.`}</div>` : ""}
-      ${q.kind === "run" ? `<div class="ctl-btns"><button class="ctl-btn yes" data-runnow="${esc(q.id)}">▶ Run now</button><button class="ctl-btn" data-runcancel="${esc(q.id)}">Cancel job</button></div>` : `<div class="ctl-btns"><button class="ctl-btn yes" data-dec="${esc(q.id)}" data-v="approved">${q.pr ? "OK to merge" : "Approve"}</button><button class="ctl-btn" data-dec="${esc(q.id)}" data-v="declined">Reject</button><button class="ctl-btn" data-ask="${esc(q.id)}">Ask</button></div>`}
+      ${q.kind === "fund" ? `<div class="ctl-btns"><button class="ctl-btn yes" data-fundvote="${esc(q.id)}" data-v="yes">Vote yes</button><button class="ctl-btn" data-fundvote="${esc(q.id)}" data-v="no">Vote no</button></div>` : q.kind === "run" ? `<div class="ctl-btns"><button class="ctl-btn yes" data-runnow="${esc(q.id)}">${q.held ? "▶ Approve and run" : "▶ Run now"}</button><button class="ctl-btn" data-runcancel="${esc(q.id)}">Cancel job</button></div>` : (() => { const o = !q.pr && askOptions(q.role); return o ? `<div class="ctl-btns ctl-opts">${o.options.map((x) => `<button class="ctl-btn${x.pick ? " yes" : ""}" data-opt="${esc(q.id)}" data-k="${esc(x.key)}" data-l="${esc(x.label)}" data-v="${x.no ? "declined" : "approved"}" title="Answer ${esc(x.key)}${x.pick ? " (their pick)" : ""}">${esc(x.key)} · ${esc(x.label)}${x.pick ? " ★" : ""}</button>`).join("")}<button class="ctl-btn" data-ask="${esc(q.id)}">Ask</button></div>` : `<div class="ctl-btns"><button class="ctl-btn yes" data-dec="${esc(q.id)}" data-v="approved">${q.pr ? "OK to merge" : "Approve"}</button><button class="ctl-btn" data-dec="${esc(q.id)}" data-v="declined">Reject</button><button class="ctl-btn" data-ask="${esc(q.id)}">Ask</button></div>`; })()}
       <div class="ctl-askbox" id="ask-${esc(q.id)}" style="display:${ctlAsk.id === q.id ? "" : "none"}"><input placeholder="Your question for ${esc(q.from || "the lead")}" value="${ctlAsk.id === q.id ? esc(ctlAsk.draft) : ""}"><button class="ctl-btn yes">Send</button></div></div>`).join("") : '<div class="ctl-sub">Nothing needs you right now.</div>'}
       ${ctlPicked.size ? `<div class="ctl-batch">${ctlPicked.size} ticked: <button class="ctl-btn yes" data-batch="approved">Approve all</button><button class="ctl-btn" data-batch="declined">Reject all</button></div>` : ""}</div>` : ""}`;
   // ---- in progress ----
@@ -269,7 +310,14 @@ function renderControl() {
   for (const b of document.querySelectorAll(".ctl-min")) { const flip = (e) => { e.stopPropagation(); const k = b.dataset.t; ctlOpen[k] = !((ctlOpen[k] ?? !isNarrow())); renderControl(); }; b.onclick = flip; b.parentElement.onclick = flip; }
   for (const b of w.querySelectorAll("[data-pick]")) b.onchange = () => { b.checked ? ctlPicked.add(b.dataset.pick) : ctlPicked.delete(b.dataset.pick); renderControl(); };
   for (const b of w.querySelectorAll("[data-dec]")) b.onclick = () => decideMany([b.dataset.dec], b.dataset.v);
-  for (const b of w.querySelectorAll("[data-runnow]")) b.onclick = async () => { b.disabled = true; b.textContent = "Running…"; try { const r = await postPw(`/agents/job/${b.dataset.runnow}/run`, {}); toast(`Done: ${r.summary || "finished"}`, 6000); await load(); } catch (err) { toast(err.message, 8000); b.disabled = false; b.textContent = "▶ Run now"; } };
+  // a choice: sent as approved (or declined for a no) with the answer as the note the asker reads
+  for (const b of w.querySelectorAll("[data-opt]")) b.onclick = async () => {
+    b.disabled = true;
+    try { await postPw(`/agents/request/${b.dataset.opt}/decide`, { decision: b.dataset.v, note: `Answer: ${b.dataset.k} (${b.dataset.l})` }); ctlPicked.delete(b.dataset.opt); toast(`Answered ${b.dataset.k}: ${b.dataset.l}`); await load(); }
+    catch (err) { toast(err.message, 6000); b.disabled = false; }
+  };
+  for (const b of w.querySelectorAll("[data-runnow]")) b.onclick = async () => { const note = await approvalNote(`/agents/job/${b.dataset.runnow}/estimate`); if (note && !await confirmBox({ title: `Run this job now? ${note}`, yes: "Approve and run", no: "Cancel" })) return; b.disabled = true; b.textContent = "Running…"; try { const r = await postPw(`/agents/job/${b.dataset.runnow}/run`, {}); toast(`Done: ${r.summary || "finished"}`, 6000); await load(); } catch (err) { toast(err.message, 8000); b.disabled = false; b.textContent = "▶ Run now"; } };
+  for (const b of w.querySelectorAll("[data-fundvote]")) b.onclick = async () => { b.disabled = true; try { await api("/agents/cityfund/vote", { id: b.dataset.fundvote, vote: b.dataset.v }); toast(b.dataset.v === "yes" ? "Voted yes" : "Voted no", 4000); ctlFundAt = 0; ctlFund = ctlFund.filter((p) => p.id !== b.dataset.fundvote); renderControl(); } catch (err) { toast(err.message, 8000); b.disabled = false; } };
   for (const b of w.querySelectorAll("[data-runcancel]")) b.onclick = async () => { if (!await confirmBox({ title: "Cancel this job?", yes: "Cancel job", no: "Keep it" })) return; try { await api(`/agents/job/${b.dataset.runcancel}/cancel`, {}); toast("Cancelled."); await load(); } catch (err) { toast(err.message, 6000); } };
   for (const b of w.querySelectorAll("[data-batch]")) b.onclick = () => decideMany([...ctlPicked], b.dataset.batch);
   for (const b of w.querySelectorAll("[data-ask]")) b.onclick = () => {

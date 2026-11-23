@@ -3,7 +3,7 @@
 // line for each pair. Tap a worker to light up its links; tap a second to trace the shortest path between them, hop by
 // hop, with each hand-off's job one tap from its tree. What a line is shows in its style, not just its colour:
 // solid = work handed on (arrow toward who got it), dashed = results back, dotted = notes, thin and faint = chat.
-// Data: /api/pipeline/agents/web?days=7[&social=1] (buildWeb in src/pipeline/trace.js), asked every 15 seconds.
+// Data: /api/agents/web?days=7[&social=1] (buildWeb in src/pipeline/trace.js), asked every 15 seconds.
 // Classic script, same global scope as the other campus parts (uses neural, neuralOpen, neuralMode, esc, data, nameOf, PROVIDER).
 const WEB_KIND = { handoff: "➜ handed on", result: "↩ result back", note: "✉ note" };
 
@@ -12,7 +12,7 @@ async function webPoll() {
   if (n.web && Date.now() - n.webAt < 14000) return; // the 5-second timer is the tree's; the web needs less
   try {
     const days = document.getElementById("neuralDays")?.value || 7, social = document.getElementById("neuralSocial")?.checked ? "&social=1" : "";
-    const r = await fetch(`/api/pipeline/agents/web?days=${days}${social}`).then((x) => (x.ok ? x.json() : x.json().catch(() => ({})).then((b) => Promise.reject(new Error(x.status === 401 ? "Sign in again." : b.error || "The hub didn't answer.")))));
+    const r = await fetch(`/api/agents/web?days=${days}${social}`).then((x) => (x.ok ? x.json() : x.json().catch(() => ({})).then((b) => Promise.reject(new Error(x.status === 401 ? "Sign in again." : b.error || "The hub didn't answer.")))));
     if (neural !== n || n.mode !== "web") return;
     n.web = r; n.webAt = Date.now(); n.fail = 0;
     const ids = new Set(r.nodes.map((x) => x.id));

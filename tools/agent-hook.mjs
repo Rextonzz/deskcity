@@ -40,22 +40,37 @@ function usageSince(transcript, sessionId) {
     state = readJson(file, null);
     if (!state) return null; // unreadable state: skip this turn rather than count the whole transcript again
   }
-  let buf;
+  // Reads only what was added since last time: a long session's transcript is megabytes, and this hook is killed after 3 s.
+  let buf, base = 0;
   try {
-    buf = fs.readFileSync(transcript);
+    const fd = fs.openSync(transcript, "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      if (state.offset > size) state = { offset: 0, ids: [] }; // transcript was replaced
+      base = state.offset;
+      buf = Buffer.alloc(size - base);
+      let got = 0;
+      while (got < buf.length) {
+        const n = fs.readSync(fd, buf, got, buf.length - got, base + got);
+        if (!n) break;
+        got += n;
+      }
+      if (got < buf.length) buf = buf.subarray(0, got);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
     return null;
   }
-  if (state.offset > buf.length) state = { offset: 0, ids: [] }; // transcript was replaced
   // Only whole lines: stop at the last newline so a line still being written is read next time.
-  const endAt = buf.lastIndexOf(10) + 1;
+  const endAt = base + buf.lastIndexOf(10) + 1;
   if (endAt <= state.offset) return null;
   const seen = new Set(state.ids);
   const sum = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   let model = null;
   let fresh = 0;
   let context = null; // how full the session's context is: what the newest reply was sent (input + cached input)
-  for (const line of buf.subarray(state.offset, endAt).toString("utf8").split("\n")) {
+  for (const line of buf.subarray(0, endAt - base).toString("utf8").split("\n")) {
     if (!line.includes('"usage"')) continue;
     let d;
     try {

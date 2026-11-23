@@ -44,6 +44,7 @@ import { startRun, withRun, onceState, readRuns, logEvent } from "../pipeline/ru
 import { skipBatch } from "../pipeline/context.js";
 import { planCleanup } from "../pipeline/cleanup.js";
 import { freeUpSpace, runFreeUp } from "../pipeline/freespace.js";
+import { liveStatus, setLiveOn, releasePool, setAutoApprove, isScannedLivePiece, isLivePieceRun } from "../pipeline/livewatch.js";
 import { pauseState, setPaused, diskInfo, cleanupDisk, msrpTable, saveMsrpTable, downloadables, versions, scheduleTable, saveSchedule } from "../pipeline/admin.js";
 import { versionHistory } from "../pipeline/versions.js";
 import { queueView } from "../pipeline/queue.js";
@@ -57,6 +58,8 @@ import { checkForUpdate } from "../hub/updatecheck.js";
 import { aiSettings, saveAiSettings, resolveModel, hasGemini, testResults, spendSummary } from "../pipeline/ai.js";
 import { startScan, scanStatus, lastScan, watchConfig, saveWatchConfig, watchLists, toCsv } from "../pipeline/dealwatch.js";
 import { helperStatus, saveHelperSettings } from "../hub/helpers.js";
+import { approveStatus, saveApproveLines } from "../hub/approval.js";
+import { runLimitsStatus, saveRunLimits } from "../hub/runlimits.js";
 import { pipelineCapStatus, savePipelineCap } from "../hub/pipelinecap.js";
 import { passOffStatus, savePassOff } from "../pipeline/refusal.js";
 import { passwordConfirmed, requirePasswordConfirmed, logSecurity, recentSecurityLog, deviceList, forgetDevice } from "../security.js";
@@ -176,7 +179,7 @@ export const summary = (j, times = {}) => ({
 });
 
 pipelineRouter.get("/jobs", (req, res) => {
-  const jobs = listJobs();
+  const jobs = req.query.pieces ? listJobs() : listJobs().filter((j) => !isScannedLivePiece(j));
   const times = stepTimes(jobs);
   // Where each queued job is in line, and what the PC is busy with (one job at a time).
   const running = jobs.find((j) => j.status === "running" || j.status === "publishing");
@@ -216,6 +219,13 @@ pipelineRouter.post("/jobs/:id/restart", requirePasswordConfirmed, action((req) 
 // Stops waiting on the half-price batch for this job: the current call is asked again at full price, and so are its later steps.
 // Push batch: every job waiting on or lined up for the half-price batch runs now at full price.
 // Admin tools (admin.js). Each answers JSON; errors come back as {error}.
+// Live clipping (livewatch.js): status for the Pipeline page, and its on/off switch (it can post, so password).
+pipelineRouter.get("/live", safe(() => liveStatus()));
+pipelineRouter.post("/live", requirePasswordConfirmed, safe((req) => setLiveOn(String(req.body?.channel || ""), req.body?.on)));
+// "Send best now": the hour's pool goes to review early (only creates review jobs; each still goes through the Neon check and the audit, or auto-approve when that is on).
+pipelineRouter.post("/live/pool/send", safe(async (req) => (await releasePool(String(req.body?.channel || ""), { force: true })) || { found: 0, sent: [] }));
+// Auto-approve live clips that passed the Neon check, for N hours (default 8; 0 = off). It posts publicly without the owner, so: password.
+pipelineRouter.post("/live/auto-approve", requirePasswordConfirmed, safe((req) => setAutoApprove(String(req.body?.channel || ""), req.body?.hours)));
 pipelineRouter.get("/admin/pause", safe(() => pauseState()));
 pipelineRouter.post("/admin/pause", safe((req) => setPaused(req.body?.paused)));
 // Standby: this copy never posts (for moving the hub to another computer). Both ways need the password: turning it off makes this copy post.
@@ -230,6 +240,20 @@ pipelineRouter.get("/admin/helpers", safe(() => helperStatus()));
 pipelineRouter.post("/admin/helpers", (req, res) => {
   const r = saveHelperSettings(req.body || {}, passwordConfirmed(req));
   if (r.status === 200) logSecurity(req, `AI helpers ${r.body.on ? "on" : "off"}, limit ${r.body.perDayUsd === null ? "none" : `$${r.body.perDayUsd} a day`}`);
+  res.status(r.status).json(r.body);
+});
+// Approval line (src/hub/approval.js): costly jobs and hub-started sessions wait for the owner's OK. A higher line or none needs the password; a lower one doesn't.
+pipelineRouter.get("/admin/approve-over", safe(() => approveStatus()));
+pipelineRouter.post("/admin/approve-over", (req, res) => {
+  const r = saveApproveLines(req.body || {}, passwordConfirmed(req));
+  if (r.status === 200) logSecurity(req, `Approval line: API ${r.body.apiUsd === null ? "off" : `$${r.body.apiUsd}`}, sessions ${r.body.subUsd === null ? "off" : `$${r.body.subUsd}`}`);
+  res.status(r.status).json(r.body);
+});
+// What the hub starts by itself (src/hub/runlimits.js): auto-runs a day and auto-push. Loosening needs the password.
+pipelineRouter.get("/admin/run-limits", safe(() => runLimitsStatus()));
+pipelineRouter.post("/admin/run-limits", (req, res) => {
+  const r = saveRunLimits(req.body || {}, passwordConfirmed(req));
+  if (r.status === 200) logSecurity(req, `Run limits: auto-runs ${r.body.autoRunPerDay === null ? "no limit" : `${r.body.autoRunPerDay} a day`}, auto-push ${r.body.autoPush.on ? `on (${r.body.autoPush.atOnce} at once, ${r.body.autoPush.perDay} a day)` : "off"}`);
   res.status(r.status).json(r.body);
 });
 // Pipeline AI budget (src/hub/pipelinecap.js): an optional monthly cap on the pipeline's own AI spend. A higher cap or none needs the password; a lower one doesn't.
@@ -541,7 +565,8 @@ const RUN_KINDS = [
 pipelineRouter.get("/runs", (req, res) => {
   const kinds = String(req.query.kind || "").split(",").filter((k) => RUN_KINDS.includes(k));
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
-  res.json({ kinds: RUN_KINDS, runs: readRuns({ kinds, limit }) });
+  const runs = readRuns({ kinds, limit: req.query.pieces ? limit : limit * 4 });
+  res.json({ kinds: RUN_KINDS, runs: (req.query.pieces ? runs : runs.filter((r) => !isLivePieceRun(r))).slice(0, limit) });
 });
 
 // a local store DMG deal watch (Cards area).

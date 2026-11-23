@@ -130,6 +130,28 @@ export function tiktokSlot({ channel, notBefore, jobId = null, gapHours = 2, ran
 // The credit line on a clip channel's TikTok caption (the owner said yes 2026-11-16): "Clip from <creator>'s stream", after
 // the caption text and before the hashtags. Added by code, never by the model. TikTok's caption limit is 2200.
 export const TIKTOK_CAPTION_LIMIT = 2200;
+
+// The channel's alwaysTags (pipeline.config.json, e.g. ["mygame", "mygametag"]) as the first hashtags of a caption's closing
+// run (the owner 2026-11-21: every YouTube and TikTok clip from the lives carries the game's tag; the AI-written TikTok caption didn't
+// get the setting). TikTok lets a post carry at most 5 hashtags (maxTags; tiktok.maxHashtags, 0 = no cap): past the
+// fifth they are ignored, so the always-tags go first, then the caption's own tags until the cap, never the other way.
+// Hashtags inside the text count toward the cap. The text is trimmed to make room if the caption is over the length limit.
+const TRAILING_TAGS = /((?:\s+#[\p{L}\p{N}_]+)+)\s*$/u;
+export function withAlwaysTags(caption, always, { limit = TIKTOK_CAPTION_LIMIT, maxTags = 5 } = {}) {
+  const text = String(caption ?? "").trim();
+  const want = [...new Set((Array.isArray(always) ? always : []).map((x) => String(x).trim().toLowerCase().replace(/^#/, "").replace(/\s+/g, "")).filter(Boolean))];
+  const m = text.match(TRAILING_TAGS);
+  const body = m ? text.slice(0, m.index).trimEnd() : text;
+  const own = m ? m[1].trim().split(/\s+/) : [];
+  const lower = (t) => t.slice(1).toLowerCase();
+  const tags = [...want.map((w) => own.find((t) => lower(t) === w) || `#${w}`), ...own.filter((t) => !want.includes(lower(t)))];
+  const inBody = (body.match(/#[\p{L}\p{N}_]+/gu) || []).length;
+  const kept = maxTags > 0 ? tags.slice(0, Math.max(want.length, maxTags - inBody)) : tags;
+  if (!kept.length) return text;
+  const joined = kept.join(" "), sep = m && /^\s*\n/.test(m[0]) ? "\n" : " ";
+  const room = limit - joined.length - sep.length;
+  return `${body.length > room ? body.slice(0, Math.max(0, room)).trimEnd() : body}${sep}${joined}`.trim();
+}
 const TAG = /^#[\p{L}\p{N}_]+$/u;
 export function withCredit(caption, creator, { limit = TIKTOK_CAPTION_LIMIT } = {}) {
   const text0 = String(caption ?? "").trim();
@@ -161,6 +183,8 @@ export function tiktokCaption(job, cfg) {
     if (out === caption.trim() && !/clip from/i.test(caption)) warning = "No creator for the TikTok credit line, so the caption went out without it.";
     caption = out;
   }
+  const tcfg = channelCfg(job.channel, cfg);
+  caption = withAlwaysTags(caption, tcfg?.alwaysTags, { maxTags: Number(tcfg?.tiktok?.maxHashtags ?? 5) });
   return { caption, warning };
 }
 

@@ -16,6 +16,8 @@ You need Node.js 20 or newer ([nodejs.org](https://nodejs.org)). Windows is the 
 npm install
 ```
 
+Browser automation (used by the YouTube and cards parts) is an add-on with its own packages: `npm run addons:install` installs it when one of those parts is on. The installer and `npm run update` do that for you.
+
 Copy `.env.example` to `.env`. Open `.env` in a text editor and paste your Claude key after `ANTHROPIC_API_KEY=`. The hub's helper workers (HR and the finance buddy) use it. Keys for Gemini, OpenAI, Grok, DeepSeek or Muse are optional: add only the providers you use. `.env` stays on your computer and is never part of the repo.
 
 Set a dashboard password. You type it in the terminal; only a hash of it is stored:
@@ -131,7 +133,7 @@ A **desk** is one worker's place on the roster. A **room** is a project. Each pr
 Two kinds of worker:
 
 - **Reporting workers**: tools that run outside the hub (Claude Code, Codex, Antigravity, Cursor, chat apps, scripts). They report what they did. The hub cannot start or stop them.
-- **Hub-run workers**: the hub calls the model itself (Claude, Gemini, OpenAI, Grok, DeepSeek, Muse, or a local model through Ollama or LM Studio). The desk card has a switch, "The hub runs this desk", and a monthly cap.
+- **Hub-run workers**: the hub calls the model itself (a cloud model through its API, or a local model server). The desk card has a switch, "The hub runs this desk", and a monthly cap.
 
 **HR** is how you get staff. Do not add workers around it. A project lead files a request:
 
@@ -179,7 +181,7 @@ What a cap does:
 - Local models cost nothing and need no cap.
 - Warnings come before the cap is hit (the finance buddy, if the board part is on, projects the month end).
 
-What a cap does not do: Claude Code sessions on a subscription cost you no API money and the hub cannot stop them. For those the hub sends alerts and plan-budget warnings. If you install the status-line meter, the hub can compare your plan's real use with its own estimate. It stops hub-started Claude Code sessions (autonomy and pushed jobs) once a project has used its share of the week, or the whole week passes the stop line (90% by default). The status-line meter tool itself is not part of this kit. Your own sessions are never stopped.
+What a cap does not do: coding-agent sessions on a subscription cost you no API money and the hub cannot stop them. For those the hub sends alerts and plan-budget warnings. If you install the status-line meter, the hub can compare your plan's real use with its own estimate. It stops hub-started coding-agent sessions (autonomy and pushed jobs) once a project has used its share of the week, or the whole week passes the stop line (90% by default). The status-line meter tool itself is not part of this kit. Your own sessions are never stopped.
 
 ### AI helpers (off until you switch them on)
 
@@ -190,6 +192,19 @@ Some parts of the hub call an AI provider on their own, without you pressing any
 - Turning the helpers on, or raising the limit, asks for your dashboard password. Turning them off, or lowering the limit, does not.
 - Admin also has a card, "Pipeline AI budget": an optional monthly limit in dollars on the AI calls the hub makes for its own pipeline steps (the YouTube pipeline's steps, lookups and ideas, anything not run by a worker or HR). It starts empty (no limit). When the month's spend reaches it those steps stop and the job waits as "held" (nothing is lost); raise the limit or wait for next month. Raising it, or removing it, asks for your dashboard password; lowering it does not.
 - Jobs you run yourself (Run now, Push), quality checks you start, the pipeline's own steps and lookups you click all keep working with the helpers off. A job that is waiting because the helpers are off shows "waiting to run" until you press Run now. While the helpers are off, new staff requests stay at "Waiting for HR" until you switch the helpers on or press Run HR yourself.
+
+### Approval line (costly new work waits for your OK)
+
+On top of the caps, the hub holds any new job it is about to run whose estimated cost is over a line you set, until you approve it.
+
+- **What it covers.** A job the hub runs on an API (any path: Run now, a chain step, a hand-off, an automatic run, a job the board or HR gave), and a coding-agent session the hub itself starts on your subscription (a lead's "work on its own", the sessions it starts after a board meeting). Sessions are priced as if they ran on the API, the way the plan meter already counts them.
+- **What it can't cover.** Coding-agent sessions you open yourself: the hub does not start them, so it cannot hold them. Local models cost nothing and are never held.
+- **The defaults.** $0.25 per API job and $5 per session, in US dollars. Admin has a card, "Approval line", with both. Empty turns that half off. In the settings files it is `agents.approveOver` = `{ "apiUsd": 0.25, "subUsd": 5 }`, and `null` or a missing field turns that half off.
+- **The estimate is free** (no AI call). For an API job: the real prompt it would send (about 4 characters to a token), the output of that worker's last 10 jobs (the median; 2,000 tokens when it has none), and the price table. A model with no price counts as over the line. For a session: that worker's average cost per hub-started session over its recent ones, else the hub's average dollars an hour times the planned hours, else nothing to go on, which counts as over the line (the first sessions on a new hub are held once).
+- **What happens when it is over.** The job stays queued and nothing is sent. It shows in Waiting for you with one line saying why ("Estimated at about $0.31, over your $0.25 approval line"), and a button: Approve and run for a job; for a session, Approve starts it. Pressing Run now yourself on a job over the line shows the estimate and the line in the confirm box, and your click is the OK. A held job makes one item, however many times something tries to start it.
+- **Approved once.** The OK and the estimate are saved on the job. A retry of the same job is not held again unless its estimate grew by more than half. Follow-up rounds of a session you approved carry on under that OK.
+- **Changing it.** Lowering a line, or turning one on, needs nothing. Raising a line, or turning it off, needs your dashboard password when one is set (the same as the AI helpers' limit).
+- It never replaces the monthly cap, the priced-models rule, the hourly limits or the helpers' limit; a job must pass all of them.
 
 ## 8. Quality scores
 
@@ -254,7 +269,7 @@ npm run update            shows what it would do and changes nothing
 npm run update -- --yes   does it
 ```
 
-It fetches from the project, moves your copy forward to the newest version (a fast-forward only: never a merge, never a reset), runs `npm ci --ignore-scripts`, runs the self-check and prints what changed. If you have edited a file that came with the app, it refuses and lists the file: copy your edit somewhere safe, put the original back (`git stash` or `git checkout -- <file>`) and run it again. There is no force option on purpose.
+It fetches from the project, moves your copy forward to the newest version (a fast-forward only: never a merge, never a reset), runs `npm ci --ignore-scripts` (and `npm run addons:install` for the add-on packages, such as browser automation), runs the self-check and prints what changed. If you have edited a file that came with the app, it refuses and lists the file: copy your edit somewhere safe, put the original back (`git stash` or `git checkout -- <file>`) and run it again. There is no force option on purpose.
 
 **2. A downloaded zip** (no git): download the kit zip of the new version from the project's releases page, then:
 

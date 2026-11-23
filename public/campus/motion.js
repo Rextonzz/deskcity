@@ -69,6 +69,7 @@ function frame(t) {
   ctx.clearRect(0, 0, W, H);
   drawStars(t);
   drawGround();
+  if (!view) cityLife.draw2dGround(t); // the pet's sunbeam (citylife.js)
   if (view) {
     // Floors bottom to top, each lifted by its height; then the front columns; then every floor's sign.
     for (const f of rooms) { ZOFF = f.z; drawRoom(f, t); }
@@ -88,7 +89,7 @@ function frame(t) {
     // Movers (the shuttle and the walkers) are drawn just before the first building they're behind: fully
     // beyond its back edge or its left edge.
     const tr = isFriday() && truckSpot();
-    const movers = [...couriers().map((c) => ({ x: c.x, y: c.y, ex: 0.2, ey: 0.2, f: () => drawCourier(c, t) })), ...(tr ? [{ x: tr[0], y: tr[1], ex: 1.0, ey: 0.5, f: () => drawFoodTruck(t) }] : []), ...vans().map((v) => ({ x: v.x, y: v.y, ex: 0.5, ey: 0.3, f: () => drawVan(v, t) })), { x: sx, y: sy, ex: 0.6, ey: 0.3, f: drawShuttle }, ...[...walkers.values()].map((w) => ({ x: w.x, y: w.y, ex: 0.2, ey: 0.2, f: () => drawWalker(w, t) })), ...(rex.x != null ? [{ x: rex.x, y: rex.y, ex: 0.3, ey: 0.3, f: () => drawPet(t) }] : [])];
+    const movers = [...couriers().map((c) => ({ x: c.x, y: c.y, ex: 0.2, ey: 0.2, f: () => drawCourier(c, t) })), ...(tr ? [{ x: tr[0], y: tr[1], ex: 1.0, ey: 0.5, f: () => drawFoodTruck(t) }] : []), ...vans().map((v) => ({ x: v.x, y: v.y, ex: 0.5, ey: 0.3, f: () => drawVan(v, t) })), { x: sx, y: sy, ex: 0.6, ey: 0.3, f: drawShuttle }, ...[...walkers.values()].map((w) => ({ x: w.x, y: w.y, ex: 0.2, ey: 0.2, f: () => drawWalker(w, t) })), ...(rex.x != null ? [{ x: rex.x, y: rex.y, ex: 0.3, ey: 0.3, f: () => drawPet(t) }] : []), ...cityLife2.movers(t)]; // (the library, docks and capsule pile: citylife2.js)
     const pending = new Set(movers);
     for (const r of sorted) {
       for (const m of pending) if (m.y + m.ey <= r.y || m.x + m.ex <= r.x) { m.f(); pending.delete(m); }
@@ -96,15 +97,19 @@ function frame(t) {
       const faded = typeof shownByFilter === "function" && campusFilter && !shownByFilter(r);
       if (faded) { ctx.save(); ctx.globalAlpha = 0.22; }
       drawBuilding(r, t);
+      cityLife.draw2dBuilding(r, t); // brownout, late-night lamp, roadwork cones (citylife.js)
       if (faded) ctx.restore();
     }
     for (const m of pending) m.f();
+    cityLife.draw2dWires(t); // the power lines (citylife.js)
+    cityLife2.draw2dTubes(t); // the pneumatic tubes, over the streets and covered walks they run along (citylife2.js)
     for (const r of sorted) if (!r.isControl && !r.isLeisure && !r.isStore && !r.isHouse && !r.isHomes && !r.isGarden && celebrating(r)) drawConfetti(r, t);
     signRects = [];
     sorted.forEach(drawSign);
     for (const [bx, by, txt] of courierBubbles) thoughtBubble(bx, by, txt, true);
     courierBubbles = [];
   }
+  if (!view) cityLife2.draw2dTop(t); // the weather routines' one line (citylife2.js)
   drawWeather(dt, t);
   if (!view) drawMiniMap();
   requestAnimationFrame(frame);

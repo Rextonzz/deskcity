@@ -63,7 +63,7 @@ export async function selfCheck({ appDir = APP, dataDir = path.join(appDir, "dat
     const out = hub.output().trim().split("\n").slice(-3).join(" | ").slice(0, 400);
     check("the hub starts and answers on the copy", up, up ? `port ${port}` : `no answer${hub.exited() !== null ? ` (it exited with code ${hub.exited()})` : " in 60 s"}; last output: ${out}`);
     if (up) {
-      const ros = await hub.get("/api/pipeline/agents/roster").catch((e) => ({ status: 0, text: e.message }));
+      const ros = await hub.get("/api/agents/roster").catch((e) => ({ status: 0, text: e.message }));
       check("the roster loads", ros.status === 200 && Array.isArray(ros.json?.desks) && Array.isArray(ros.json?.rooms), `status ${ros.status}${Array.isArray(ros.json?.desks) ? `, ${ros.json.desks.length} desks, ${ros.json.rooms.length} rooms` : ""}`);
       const page = await hub.get("/campus.html").catch((e) => ({ status: 0, text: e.message }));
       check("the campus page returns 200", page.status === 200 && /<html|<!doctype/i.test(page.text), `status ${page.status}, ${page.text.length} bytes`);

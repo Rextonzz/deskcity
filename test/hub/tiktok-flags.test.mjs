@@ -57,12 +57,12 @@ test("a music or copyright notice needs notice words together with what they are
 });
 
 test("the full text is kept (scrubbed) and per-post rows are read from plain lines", () => {
-  const text = "Posts\nLudwig loses it #ludwig\nNov 5, 2026\nEveryone\n1.2K\nSecond clip here\nNov 4\nPrivate | Under review\nCopyright © 2026 TikTok";
+  const text = "Posts\nStreamer loses it #streamer\nNov 5, 2026\nEveryone\n1.2K\nSecond clip here\nNov 4\nPrivate | Under review\nCopyright © 2026 TikTok";
   const r = F.readPageText(text + "\nmail a@b.co");
   assert.ok(r.fullText.includes("Copyright © 2026 TikTok"), "the full text keeps everything");
   assert.ok(!r.fullText.includes("a@b.co"));
   assert.deepEqual(r.posts, [
-    { title: "Ludwig loses it #ludwig", date: "Nov 5, 2026", status: ["everyone"] },
+    { title: "Streamer loses it #streamer", date: "Nov 5, 2026", status: ["everyone"] },
     { title: "Second clip here", date: "Nov 4", status: ["private", "under review"] },
   ]);
 });

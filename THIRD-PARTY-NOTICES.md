@@ -98,18 +98,68 @@ These are installed by `npm ci` from `package-lock.json` and are not copied into
 |---|---|---|---|
 | @anthropic-ai/sdk | 0.135.0 | MIT | runtime |
 | @babel/runtime | 7.29.10 | MIT | runtime |
+| @cacheable/memory | 2.2.0 | MIT | development only |
+| @cacheable/utils | 2.5.0 | MIT | development only |
+| @eslint-community/eslint-utils | 4.10.1 | MIT | development only |
+| @eslint-community/regexpp | 4.12.3 | MIT | development only |
+| @eslint/config-array | 0.23.6 | Apache-2.0 | development only |
+| @eslint/config-helpers | 0.7.0 | Apache-2.0 | development only |
+| @eslint/core | 1.2.1 | Apache-2.0 | development only |
+| @eslint/js | 10.0.1 | MIT | development only |
+| @eslint/object-schema | 3.0.5 | Apache-2.0 | development only |
+| @eslint/plugin-kit | 0.7.3 | Apache-2.0 | development only |
+| @humanfs/core | 0.19.2 | Apache-2.0 | development only |
+| @humanfs/node | 0.16.8 | Apache-2.0 | development only |
+| @humanfs/types | 0.15.0 | Apache-2.0 | development only |
+| @humanwhocodes/module-importer | 1.0.1 | Apache-2.0 | development only |
+| @humanwhocodes/retry | 0.4.3 | Apache-2.0 | development only |
+| @isaacs/nonrecursive-glob-match | 1.1.0 | BlueOak-1.0.0 | development only |
+| @keyv/bigmap | 1.3.1 | MIT | development only |
+| @keyv/serialize | 1.1.1 | MIT | development only |
 | @opentelemetry/api | 1.9.1 | Apache-2.0 | runtime |
 | @stablelib/base64 | 1.0.1 | MIT | runtime |
+| @types/esrecurse | 4.3.1 | MIT | development only |
+| @types/estree | 1.0.10 | MIT | development only |
+| @types/json-schema | 7.0.15 | MIT | development only |
+| @types/node | 26.6.6 | MIT | development only |
+| @typescript/typescript-aix-ppc64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-darwin-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-darwin-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-freebsd-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-freebsd-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-arm | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-loong64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-mips64el | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-ppc64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-riscv64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-s390x | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-linux-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-netbsd-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-netbsd-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-openbsd-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-openbsd-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-sunos-x64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-win32-arm64 | 7.0.2 | Apache-2.0 | development only |
+| @typescript/typescript-win32-x64 | 7.0.2 | Apache-2.0 | development only |
 | accepts | 2.0.0 | MIT | runtime |
+| acorn | 8.19.0 | MIT | development only |
+| acorn-jsx | 5.3.2 | MIT | development only |
+| ajv | 6.15.0 | MIT | development only |
+| balanced-match | 4.0.4 | MIT | development only |
 | body-parser | 2.4.0 | MIT | runtime |
+| brace-expansion | 5.0.13 | MIT | development only |
 | bytes | 3.1.2 | MIT | runtime |
+| cacheable | 2.5.0 | MIT | development only |
 | call-bind-apply-helpers | 1.0.2 | MIT | runtime |
 | call-bound | 1.0.4 | MIT | runtime |
 | content-disposition | 2.0.1 | MIT | runtime |
 | content-type | 2.1.0 | MIT | runtime |
 | cookie | 0.7.2 | MIT | runtime |
 | cookie-signature | 1.2.2 | MIT | runtime |
+| cross-spawn | 7.0.6 | MIT | development only |
 | debug | 4.4.3 | MIT | runtime |
+| deep-is | 0.1.4 | MIT | development only |
 | depd | 2.0.0 | MIT | runtime |
 | dotenv | 18.0.8 | BSD-2-Clause | runtime |
 | dunder-proto | 1.0.1 | MIT | runtime |
@@ -119,39 +169,79 @@ These are installed by `npm ci` from `package-lock.json` and are not copied into
 | es-errors | 1.3.0 | MIT | runtime |
 | es-object-atoms | 1.1.2 | MIT | runtime |
 | escape-html | 1.0.3 | MIT | runtime |
+| escape-string-regexp | 4.0.0 | MIT | development only |
+| eslint | 10.15.0 | MIT | development only |
+| eslint-scope | 9.1.2 | BSD-2-Clause | development only |
+| eslint-visitor-keys | 3.4.3 | Apache-2.0 | development only |
+| eslint-visitor-keys | 5.0.1 | Apache-2.0 | development only |
+| espree | 11.2.0 | BSD-2-Clause | development only |
+| esquery | 1.7.0 | BSD-3-Clause | development only |
+| esrecurse | 4.3.0 | BSD-2-Clause | development only |
+| estraverse | 5.3.0 | BSD-2-Clause | development only |
+| esutils | 2.0.3 | BSD-2-Clause | development only |
 | etag | 1.8.1 | MIT | runtime |
 | express | 5.3.0 | MIT | runtime |
+| fast-deep-equal | 3.1.3 | MIT | development only |
+| fast-json-stable-stringify | 2.1.0 | MIT | development only |
+| fast-levenshtein | 2.0.6 | MIT | development only |
 | fast-sha256 | 1.3.0 | Unlicense | runtime |
+| file-entry-cache | 11.1.5 | MIT | development only |
 | finalhandler | 2.1.1 | MIT | runtime |
+| find-up | 5.0.0 | MIT | development only |
+| flat-cache | 6.1.23 | MIT | development only |
+| flatted | 3.4.4 | ISC | development only |
 | forwarded | 0.2.0 | MIT | runtime |
 | fresh | 2.0.0 | MIT | runtime |
 | function-bind | 1.1.2 | MIT | runtime |
 | get-intrinsic | 1.3.0 | MIT | runtime |
 | get-proto | 1.0.1 | MIT | runtime |
+| glob-parent | 6.0.2 | ISC | development only |
+| globals | 17.14.0 | MIT | development only |
 | gopd | 1.2.0 | MIT | runtime |
 | has-symbols | 1.1.0 | MIT | runtime |
+| hashery | 1.5.1 | MIT | development only |
 | hasown | 2.0.4 | MIT | runtime |
+| hookified | 1.15.1 | MIT | development only |
+| hookified | 2.2.0 | MIT | development only |
 | http-errors | 2.0.1 | MIT | runtime |
 | iconv-lite | 0.7.3 | MIT | runtime |
+| ignore | 5.3.2 | MIT | development only |
+| imurmurhash | 0.1.4 | MIT | development only |
 | inherits | 2.0.4 | ISC | runtime |
 | ipaddr.js | 1.9.1 | MIT | runtime |
+| is-extglob | 2.1.1 | MIT | development only |
+| is-glob | 4.0.3 | MIT | development only |
 | is-promise | 4.0.0 | MIT | runtime |
+| isexe | 2.0.0 | ISC | development only |
 | json-schema-to-ts | 3.1.1 | MIT | runtime |
+| json-schema-traverse | 0.4.1 | MIT | development only |
+| json-stable-stringify-without-jsonify | 1.0.1 | MIT | development only |
+| keyv | 5.6.0 | MIT | development only |
+| levn | 0.4.1 | MIT | development only |
+| locate-path | 6.0.0 | MIT | development only |
 | math-intrinsics | 1.1.0 | MIT | runtime |
 | media-typer | 1.1.1 | MIT | runtime |
 | merge-descriptors | 2.0.0 | MIT | runtime |
 | mime-db | 1.54.0 | MIT | runtime |
 | mime-types | 3.0.2 | MIT | runtime |
+| minimatch | 11.0.9 | BlueOak-1.0.0 | development only |
 | ms | 2.1.3 | MIT | runtime |
+| natural-compare | 1.4.0 | MIT | development only |
 | negotiator | 1.1.0 | MIT | runtime |
 | object-inspect | 1.13.4 | MIT | runtime |
 | on-finished | 2.4.1 | MIT | runtime |
 | once | 1.4.0 | ISC | runtime |
+| optionator | 0.9.4 | MIT | development only |
+| p-limit | 3.1.0 | MIT | development only |
+| p-locate | 5.0.0 | MIT | development only |
 | parseurl | 1.3.3 | MIT | runtime |
+| path-exists | 4.0.0 | MIT | development only |
+| path-key | 3.1.1 | MIT | development only |
 | path-to-regexp | 8.4.2 | MIT | runtime |
-| playwright | 1.63.0 | Apache-2.0 | runtime |
-| playwright-core | 1.63.0 | Apache-2.0 | runtime |
+| prelude-ls | 1.2.1 | MIT | development only |
 | proxy-addr | 2.0.8 | MIT | runtime |
+| punycode | 2.3.1 | MIT | development only |
+| qified | 0.10.1 | MIT | development only |
 | qs | 6.16.1 | BSD-3-Clause | runtime |
 | range-parser | 1.3.0 | MIT | runtime |
 | raw-body | 3.0.2 | MIT | runtime |
@@ -160,6 +250,8 @@ These are installed by `npm ci` from `package-lock.json` and are not copied into
 | send | 1.2.1 | MIT | runtime |
 | serve-static | 2.2.1 | MIT | runtime |
 | setprototypeof | 1.2.0 | ISC | runtime |
+| shebang-command | 2.0.0 | MIT | development only |
+| shebang-regex | 3.0.0 | MIT | development only |
 | side-channel | 1.1.1 | MIT | runtime |
 | side-channel-list | 1.0.1 | MIT | runtime |
 | side-channel-map | 1.0.1 | MIT | runtime |
@@ -168,8 +260,24 @@ These are installed by `npm ci` from `package-lock.json` and are not copied into
 | statuses | 2.0.2 | MIT | runtime |
 | toidentifier | 1.0.1 | MIT | runtime |
 | ts-algebra | 2.0.0 | MIT | runtime |
+| type-check | 0.4.0 | MIT | development only |
 | type-is | 2.1.0 | MIT | runtime |
+| typescript | 7.0.2 | Apache-2.0 | development only |
+| undici-types | 8.9.0 | MIT | development only |
 | unpipe | 1.0.0 | MIT | runtime |
+| uri-js | 4.4.1 | BSD-2-Clause | development only |
 | vary | 1.1.2 | MIT | runtime |
+| which | 2.0.2 | ISC | development only |
+| word-wrap | 1.2.5 | MIT | development only |
 | wrappy | 1.0.2 | ISC | runtime |
+| yocto-queue | 0.1.0 | MIT | development only |
 <!-- npm-table:end -->
+
+## Add-on: browser
+
+These are installed by `npm run addons:install` from `addons/browser/package-lock.json` (npm ci in that folder), not by the core install, and only when the browser add-on is on or the YouTube or cards part needs it. They are not copied into this repository.
+
+| Package | Version | Licence | Used |
+|---|---|---|---|
+| playwright | 1.63.0 | Apache-2.0 | runtime (add-on) |
+| playwright-core | 1.63.0 | Apache-2.0 | runtime (add-on) |

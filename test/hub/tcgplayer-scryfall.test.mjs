@@ -1,10 +1,11 @@
 // priceCards and lookupTcg (src/pipeline/tcgplayer.js) against a stand-in tcgplayer.com tab, and the one Scryfall
 // client (scryfallApi in scryfall.js) against a stubbed fetch: no real browser, no network.
-import test from "node:test";
+import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { hub } from "./helper.mjs";
+import { loadPlaywright } from "../../src/addons/playwright.js";
 
 const { root } = await hub();
 fs.writeFileSync(path.join(root, "pipeline.config.json"), JSON.stringify({ chromeProfileDir: "chrome-profile" }));
@@ -28,8 +29,12 @@ const standIn = () => ({
     return fn(args);
   },
 });
-const { chromium } = await import("playwright");
-chromium.launchPersistentContext = async () => ({ on() {}, newPage: async () => standIn() });
+// Skipped (not failed) when the browser add-on is not installed and core has no playwright either.
+let chromium = null;
+try { ({ chromium } = await loadPlaywright()); } catch {}
+const skip = chromium ? false : "playwright is not installed (npm run addons:install)";
+const test = Object.assign((name, fn) => nodeTest(name, { skip }, fn), { beforeEach: nodeTest.beforeEach.bind(nodeTest) });
+if (chromium) chromium.launchPersistentContext = async () => ({ on() {}, newPage: async () => standIn() });
 const { priceCards, lookupTcg } = await import("../../src/pipeline/tcgplayer.js");
 const { scryfallApi } = await import("../../src/pipeline/scryfall.js");
 const prod = (id, n, s, num) => ({ id, n, s, num });
@@ -110,7 +115,7 @@ test("lookupTcg: low, 3rd and count per printing; the set-name search only with 
   assert.equal((await lookupTcg({ name: "Nothing", foil: "foil" })).error, "No TCGplayer product with that name.");
 });
 
-test("scryfallApi: a 429 is retried when retries are on; a 500 fails fast without them; a 404 is null", async () => {
+nodeTest("scryfallApi: a 429 is retried when retries are on; a 500 fails fast without them; a 404 is null", async () => {
   const seen = [];
   const answers = [];
   globalThis.fetch = async (u, o) => {

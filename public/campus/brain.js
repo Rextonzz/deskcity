@@ -7,7 +7,7 @@
 // Jobs). Every step the worker reports sends a pulse from the core to its station; a failed step is red; a finished
 // reply pulses the core itself. A ring around the core shows how full the session's context is.
 // A text feed underneath: every step with its time, newest first.
-// Data: /api/pipeline/agents/desk/<id>/live, asked every 2 seconds while the view is open (only what's new).
+// Data: /api/agents/desk/<id>/live, asked every 2 seconds while the view is open (only what's new).
 // Classic script, same global scope as the other campus parts (uses esc, api, nameOf, titleOf, data, PROVIDER).
 const BRAIN_ST = [
   ["files", "📄", "Files"], ["shell", "⌨️", "Shell"], ["web", "🌐", "Web"], ["agents", "🤝", "Sub-agents"],
@@ -55,7 +55,7 @@ async function brainPoll(first) {
   const b = brain; if (!b) return;
   if (!first && document.visibilityState === "hidden") return; // no polling while the tab is hidden (speed, 2026-11-16)
   try {
-    const r = await fetch(`/api/pipeline/agents/desk/${encodeURIComponent(b.desk)}/live${b.since ? `?since=${encodeURIComponent(b.since)}` : ""}`).then((x) => (x.ok ? x.json() : Promise.reject(new Error(x.status === 401 ? "Sign in again." : "The hub didn't answer."))));
+    const r = await fetch(`/api/agents/desk/${encodeURIComponent(b.desk)}/live${b.since ? `?since=${encodeURIComponent(b.since)}` : ""}`).then((x) => (x.ok ? x.json() : Promise.reject(new Error(x.status === 401 ? "Sign in again." : "The hub didn't answer."))));
     if (brain !== b) return;
     b.info = r; b.fail = 0;
     if (r.contextTokens) b.ctx = r.contextTokens;

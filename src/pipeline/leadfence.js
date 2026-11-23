@@ -73,7 +73,8 @@ export function fenceRules({ hubDir, folder, allowedScripts = [] }) {
   const rules = [], skipped = [];
   const hub = rulePath(hubDir), here = rulePath(folder);
   if (hub) {
-    rules.push(`Read(${hub}/.env)`, `Read(${hub}/.env.*)`, `Read(${hub}/data/**)`);
+    // .chrome-profile holds the signed-in YouTube Studio and TikTok sessions
+    rules.push(`Read(${hub}/.env)`, `Read(${hub}/.env.*)`, `Read(${hub}/data/**)`, `Read(${hub}/.chrome-profile/**)`);
     // a session working somewhere else has no business changing the hub; one working in the hub is its builder
     if (here !== hub && !(here || "").startsWith(`${hub}/`)) rules.push(`Edit(${hub}/**)`);
     else rules.push(`Edit(${hub}/tools/agent-log.mjs)`, `Edit(${hub}/tools/agent-hook.mjs)`, `Edit(${hub}/src/security.js)`, `Edit(${hub}/src/pipeline/leadfence.js)`);
@@ -85,6 +86,7 @@ export function fenceRules({ hubDir, folder, allowedScripts = [] }) {
     "Read(~/.ssh/**)",
     "Read(~/.aws/**)",
     "Read(~/.config/gh/**)",
+    "Read(~/AppData/Roaming/GitHub CLI/**)", // where the GitHub CLI keeps its token on Windows
     "Read(~/.git-credentials)",
     "Read(~/.claude/.credentials.json)",
     "Read(~/.codex/auth.json)",

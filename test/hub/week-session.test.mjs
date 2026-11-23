@@ -21,7 +21,7 @@ test("the lead's session starts with an hour, the week's budget and the plan ste
   const r = A.afterMeeting({ trigger: "test" });
   assert.deepEqual(r.started, ["game"]);
   const f = path.join(folder, "brief.txt");
-  for (let i = 0; i < 100 && !fs.existsSync(f); i++) await wait(50);
+  for (let i = 0; i < 100 && !(fs.existsSync(f) && fs.statSync(f).size > 0); i++) await wait(50); // exists can come before the write ends
   const brief = fs.readFileSync(f, "utf8");
   assert.match(brief, /The board meeting has just ended/);
   assert.match(brief, /3 hours of your own working time/);

@@ -5,6 +5,7 @@
 //   node tools/agent-log.mjs event   --desk myproject-gemini --room myproject --summary "wrote faction lore" [--provider gemini] [--model gemini-3.1-pro] [--in 12000 --out 900] [--billing subscription|api] [--action note]
 //   node tools/agent-log.mjs ask     --from myproject-lead --room myproject --question "OK to spend $10 on the art service this month?" [--why "..."] [--urgency high]
 //   node tools/agent-log.mjs ask     --from myproject-lead --room myproject --question "OK to merge #144 (the PR's title)?" --pr 144   (approving sends "OK to merge")
+//   node tools/agent-log.mjs ask     --from myproject-lead --room myproject --question "Give us Repo housekeeping?" --grant repo-tidy [--desks a,b]   (approving turns that access on for those desks; default --from)
 //   node tools/agent-log.mjs inbox   --desk myproject-lead   (or --room myproject): the owner's answers, newest first
 //   node tools/agent-log.mjs jobs    --desk myproject-lead   jobs the owner gave this desk that are still open
 //   node tools/agent-log.mjs take    --job <id> --desk <desk>          / done --job <id> --summary "..." [--result-file out.md]  / fail --job <id> --summary "why"
@@ -53,7 +54,7 @@ function usage(msg) {
 // folder), and never a private one (privateFile). Those are
 // named as "not sent", never read (security audit 2026-11-11, finding 1).
 const KEY_NAME = /^(\.env(\..*)?|.+\.env|id_.*|hosts\.ya?ml|\.git-credentials|\.?credentials(\.json)?|auth\.json|\.netrc|export_credentials\.cfg|.*keystore\.properties|local\.properties|\.npmrc|\.pypirc|(token|tokens|secret|secrets)(\..*)?|.+\.(pem|key|p12|pfx|keystore|jks|ppk|kdbx))$/i;
-const HOME_PRIVATE = [".ssh", ".aws", ".config/gh", ".claude", ".gemini", ".codex", ".copilot", ".gnupg", ".docker", ".kube", ".azure"];
+const HOME_PRIVATE = [".ssh", ".aws", ".config/gh", "AppData/Roaming/GitHub CLI", ".claude", ".gemini", ".codex", ".copilot", ".gnupg", ".docker", ".kube", ".azure"];
 function inside(p, dir) {
   const rel = path.relative(dir, p);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
@@ -61,7 +62,7 @@ function inside(p, dir) {
 function privateFile(p, { hub, home } = {}) {
   if (KEY_NAME.test(path.basename(p))) return true;
   if (path.resolve(p).split(/[\\/]/).includes(".git")) return true;
-  if (hub && inside(p, path.join(hub, "data"))) return true;
+  if (hub && (inside(p, path.join(hub, "data")) || inside(p, path.join(hub, ".chrome-profile")))) return true; // .chrome-profile: the signed-in Studio and TikTok sessions
   return !!home && HOME_PRIVATE.some((d) => inside(p, path.join(home, d)));
 }
 // The session's project: the nearest folder at or above `dir` with a .git, else `dir` itself.
@@ -103,6 +104,8 @@ function readResult(file) {
   const p = path.resolve(file), w = WHERE();
   let rp = p; try { rp = fs.realpathSync.native(p); } catch {}
   if (privateFile(p, w) || privateFile(rp, w)) usage(`${file} is private (a key, a .env, sign-ins or the hub's data), so it isn't sent to the hub.`);
+  // Same as files named in a hand-off text: only inside the session's own project folder.
+  if (!w.project || !inside(rp, w.project)) usage(`${file} is outside the project folder, so it isn't sent to the hub. Put the result file inside the project.`);
   return fs.readFileSync(rp, "utf8");
 }
 const JOB_STATUS = { take: "taken", done: "done", fail: "failed" };
@@ -124,8 +127,9 @@ const COMMANDS = {
     body: (o) => ({ from: o.from || "agent", room: o.room, role: o.role, why: o.why, needs: o.needs, urgency: o.urgency, budgetAsk: o.budget, suggested: o.model || o.provider ? { provider: o.provider, model: o.model, effort: o.effort } : null }),
     print: (out) => console.log(`Request ${out.id} filed for ${out.room}: ${out.role}. HR checks it within 3 hours.`) },
   ask: { url: "ask", need: (o) => (!o.room || !o.question) && "--room and --question are required.",
-    body: (o) => ({ from: o.from || "agent", room: o.room, question: o.question, why: o.why, urgency: o.urgency, pr: o.pr }),
-    print: (out) => console.log(`Asked ${OWNER()} (${out.id}): ${out.role}${out.pr ? ` [PR #${out.pr}]` : ""}\nTheir answer will show in "agent-log.mjs inbox".`) },
+    // --grant <access id> [--desks a,b]: an access ask; approving it turns that access on for those desks (default: --from)
+    body: (o) => ({ from: o.from || "agent", room: o.room, question: o.question, why: o.why, urgency: o.urgency, pr: o.pr, grant: o.grant, desks: o.desks }),
+    print: (out) => console.log(`Asked ${OWNER()} (${out.id}): ${out.role}${out.pr ? ` [PR #${out.pr}]` : ""}${out.grant ? ` [approving turns on ${out.grant.id} for ${out.grant.desks.join(", ")}]` : ""}\nTheir answer will show in "agent-log.mjs inbox".`) },
   inbox: { url: "inbox", need: (o) => !o.desk && !o.room && "--desk or --room is required.",
     body: (o) => ({ desk: o.desk, room: o.room, limit: o.limit }),
     print: (out) => {

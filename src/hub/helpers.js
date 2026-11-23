@@ -16,12 +16,13 @@ import { recordEvent, readEvents } from "../pipeline/agents.js";
 //   hr_review         src/pipeline/hr.js (team jobs, requests, store ideas, job scores) and the judge in agents/quality.js
 //   campus_chatter    src/pipeline/agents.js (chatter)
 //   campus_store_idea src/pipeline/agents/campus.js (suggestStoreItem)
+//   campus_district_vote src/pipeline/agents/districts.js (workers' votes on a new district, review L1 2026-11-20)
 //   campus_self       src/pipeline/agents/selves.js (growSelves; SELF_STEP)
 //   desk_assistant    src/pipeline/agents/assistant.js (askDeskModel for the shared assistant: second opinions, PR code
 //                     reviews, first briefs). The security reviewer's desk_<id> step is not listed (its id is the owner's).
 //   campus_short_topic, campus_short_reaction   src/pipeline/agents/campus.js (watchShort, from the shop timer)
 //   campus_experience src/pipeline/agents/experiences.js (runExperience, from the shop timer)
-export const HELPER_STEPS = ["hr_review", "campus_chatter", "campus_store_idea", "campus_self", "desk_assistant", "campus_short_topic", "campus_short_reaction", "campus_experience"];
+export const HELPER_STEPS = ["hr_review", "campus_chatter", "campus_store_idea", "campus_self", "desk_assistant", "campus_short_topic", "campus_short_reaction", "campus_experience", "campus_district_vote"];
 
 const DEFAULT_PER_DAY = 1;
 const cleanLimit = (v) => (v === null || v === "none" ? null : v !== "" && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : DEFAULT_PER_DAY);

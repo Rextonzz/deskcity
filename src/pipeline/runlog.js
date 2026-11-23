@@ -14,6 +14,7 @@ const OPEN = new Map();
 let openId = 0;
 export const openRuns = () => [...OPEN.values()].map((r) => ({ kind: r.kind, trigger: r.trigger, startedAt: r.startedAt, step: r.steps.at(-1)?.name || null, channel: r.channel || null, videoId: r.videoId || null, job: r.job || r.jobId || null }));
 
+/** @param {string} kind @param {Record<string, any>} [meta] what started it (trigger) and anything to keep with the run */
 export function startRun(kind, { trigger = "button", ...info } = {}) {
   const run = { kind, trigger, startedAt: new Date().toISOString(), ...info, steps: [], warnings: [], warningCount: 0 };
   const myId = ++openId;
@@ -36,6 +37,7 @@ export function startRun(kind, { trigger = "button", ...info } = {}) {
       run.warningCount++;
       if (run.warnings.length < MAX_WARNINGS) run.warnings.push(String(msg).slice(0, 300));
     },
+    /** @param {Record<string, any>} [result] error, plus any counts to keep */
     end({ error = null, ...counts } = {}) {
       OPEN.delete(myId);
       clearTimeout(stale);

@@ -38,4 +38,19 @@ window.hubBlocks = [
   { page: "wow", title: "WoW raids", icon: "⚑", rooms: ["gaming"], door: "wow", team: HUB, about: "Warcraft Logs parses and recent raids, per character." },
   { page: "reading", title: "Watching and reading", icon: "❖", rooms: ["leisure"], door: "reading", team: HUB, about: "Anime and manga in one list, with what has come out since you last caught up." },
 ];
+// Drop-in add-ons that are switched on (src/addons/loader.js): asked once. window.hubAddons resolves to [{ id, name, pages, panel? }]
+// (an empty list when none are on, so nothing changes on screen). An add-on's panel script is loaded here; its pages are
+// added to the campus Control building by DOOR/DOORS in campus/panels.js. Skipped where there is no fetch or page (tests).
+window.hubAddons = typeof fetch === "function" && typeof document !== "undefined"
+  ? fetch("/api/addons/client").then((r) => (r.ok ? r.json() : [])).catch(() => []).then((list) => {
+      list = Array.isArray(list) ? list : [];
+      for (const a of list) {
+        if (typeof a.panel !== "string" || !/^\/addons\/[a-z0-9-]+\/panel\.js$/.test(a.panel)) continue;
+        const el = document.createElement("script");
+        el.src = a.panel;
+        (document.head || document.documentElement).appendChild(el);
+      }
+      return list;
+    })
+  : Promise.resolve([]);
 })();

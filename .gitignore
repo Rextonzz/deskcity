@@ -44,3 +44,6 @@ test/campus/out/
 
 # Session worktrees (work in .wt/<branch> so the hub folder stays on main)
 .wt/
+
+# Add-on dependencies (addons/<id>/, src/addons/loader.js)
+addons/*/node_modules/

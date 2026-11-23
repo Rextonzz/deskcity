@@ -1,3 +1,4 @@
+// @ts-check
 // Public-address checks for blocker watches (security plan 02, 2026-11-16): a watch may read public web pages only,
 // never this PC, the router, a printer, a cloud metadata address or anything else on a private network.
 import net from "node:net";
@@ -48,6 +49,8 @@ export function isPublicIp(ip) {
   const v4 = `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
   if (g.slice(0, 5).every((n) => n === 0) && g[5] === 0xffff) return isPublicIp(v4); // ::ffff:a.b.c.d
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((n) => n === 0)) return isPublicIp(v4); // NAT64
+  if (g[0] === 0x2002) return isPublicIp(`${g[1] >> 8}.${g[1] & 255}.${g[2] >> 8}.${g[2] & 255}`); // 6to4: the address inside it
+  if (g[0] === 0x2001 && g[1] === 0) return false; // Teredo tunnels
   if (g.every((n) => n === 0) || (g.slice(0, 7).every((n) => n === 0) && g[7] === 1)) return false; // :: and ::1
   if ((g[0] & 0xfe00) === 0xfc00) return false; // fc00::/7
   if ((g[0] & 0xffc0) === 0xfe80) return false; // fe80::/10

@@ -10,10 +10,12 @@ import { checkCredit } from "./credits.js";
 import { aiSettings, stepKey, resolveModel, askGemini, hasGemini, shadowCandidates, agreement, saveTest, costOf, defaultCost } from "./ai.js";
 import { askOpenAI, isCompat } from "./openai-compat.js";
 import { claudeRefusal } from "./refusal.js";
+import { fetchRetry } from "./fetch-retry.js";
 import { isDemo, DEMO_MESSAGE } from "../hub/settings.js";
 import { assertPipelineBudget } from "../hub/pipelinecap.js";
 
-const client = new Anthropic({ apiKey: config.anthropicApiKey });
+// fetchRetry rides out a short network drop (2 s, 6 s, 18 s) before the SDK's own retries (which wait under 10 s in all).
+const client = new Anthropic({ apiKey: config.anthropicApiKey, fetch: (url, init) => fetchRetry(url, init) });
 
 // The channel rules (same for every step) are cached on their own for an hour, so each step reads them from the
 // cache instead of writing its own copy; the step's task comes after, uncached. the owner 2026-10-23: cache hit rate
@@ -59,15 +61,17 @@ export function readClaudeMessage(message, name) {
 
 // One row in the run log for an AI call (the success row carries tokens and cost in `extra`, the error row `error`).
 export function logAiCall({ trigger, step, provider, model, effort }, extra) {
-  appendSpend({ kind: "ai call", step, provider, model, costUsd: extra?.costUsd, costDefault: extra?.costDefault }); // the spend ledger (caps, finance, HUD)
+  appendSpend({ kind: "ai call", step, provider, model, costUsd: extra?.costUsd, costDefault: extra?.costDefault, batch: extra?.batch }); // the spend ledger (caps, finance, HUD); costUsd is already the batch price
   logEvent("ai call", { trigger, job: currentAi().job, video: currentAi().video, step, provider, model, effort, ...extra });
 }
 
 // One Claude call. The main model gets the server-side fallback; test models (Haiku especially) may not take
 // every option, so a 400 about them retries without.
-async function askClaude({ name, model, system, content, schema, effort, main, batch, quiet }) {
+// search: up to that many server-side web searches (about 1¢ each); a call with search never goes by batch.
+async function askClaude({ name, model, system, content, schema, effort, main, batch, quiet, search = 0 }) {
   const started = Date.now();
-  const base = { model, max_tokens: 64000, system: systemBlocks(system), messages: [{ role: "user", content }] };
+  if (search) batch = false;
+  const base = { model, max_tokens: 64000, system: systemBlocks(system), messages: [{ role: "user", content }], ...(search ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: search }] } : {}) };
   const full = { ...base, thinking: { type: "adaptive" }, output_config: { effort, format: { type: "json_schema", schema } }, ...(main ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {}) };
   let message;
   try {
@@ -78,7 +82,7 @@ async function askClaude({ name, model, system, content, schema, effort, main, b
     if ((err.status === 400 || /batch request errored/.test(err.message)) && hourCache && /ttl|cache_control/i.test(err.message)) {
       hourCache = false;
       console.warn(`${name}: the hour-long prompt cache was refused (${err.message.split("\n")[0]}), using the 5-minute one`);
-      return askClaude({ name, model, system, content, schema, effort, main, batch, quiet });
+      return askClaude({ name, model, system, content, schema, effort, main, batch, quiet, search });
     }
     if (main || err.status !== 400 || !/effort|thinking|fallback/i.test(err.message)) throw err;
     message = await client.beta.messages.stream({ ...base, output_config: { format: { type: "json_schema", schema } } }).finalMessage();
@@ -90,6 +94,7 @@ async function askClaude({ name, model, system, content, schema, effort, main, b
     usage,
     ms: Date.now() - started,
     model: message.model || model,
+    searches: message.usage?.server_tool_use?.web_search_requests || 0,
   };
 }
 
@@ -129,13 +134,16 @@ async function askWithNow(route, args) {
     const r = isCompat(route.provider)
       ? await askOpenAI({ ...args, provider: route.provider, model: route.model, prices: aiSettings().prices })
       : route.provider === "gemini"
-        ? await askGemini({ ...args, model: route.model })
+        ? await askGemini({ ...args, model: route.model, batch: Boolean(args.geminiBatch) }) // Gemini batch: hub-run desk jobs only (askAs)
         : await askClaude({ ...args, model: route.model });
     // Every AI call in the run log (model, tokens, time), to see what each step really costs.
+    const booked = bookedCost(r, route, args.name);
+    if (r.searches) booked.costUsd = Number(((booked.costUsd || 0) + r.searches * (route.provider === "gemini" ? 0.035 : 0.01)).toFixed(4));
     logAiCall({ trigger: args.main ? "app" : "test", step: args.name, provider: route.provider, model: r.model, effort: args.effort }, {
       ...r.usage,
       ...(r.batch ? { batch: true } : {}),
-      ...bookedCost(r, route, args.name),
+      ...booked,
+      ...(r.searches ? { searches: r.searches } : {}),
       aiMs: r.ms,
     });
     checkCredit(route.provider);
@@ -230,7 +238,8 @@ export async function askJSON({ name, system, content, schema, effort = "medium"
 
 // Asks one named model (a desk's own model, for jobs the hub runs on a desk's behalf). Logged like any other call,
 // with the step name "desk_<id>" so its cost lands on that desk.
-export async function askAs({ name, model, provider, system, content, schema, effort = "medium" }) {
+// batch: a job that can wait goes at the half batch price (Claude Message Batches or the Gemini Batch API; not with search).
+export async function askAs({ name, model, provider, system, content, schema, effort = "medium", search = 0, batch = false }) {
   const fake = fakeAnswer("desk_job");
   if (fake) {
     // tests: what was asked is kept beside the canned answer
@@ -238,18 +247,22 @@ export async function askAs({ name, model, provider, system, content, schema, ef
     return fake.answer;
   }
   const route = isCompat(provider) ? { provider, model } : await resolveModel(model);
-  const r = await askWith(route, { name, system, content, schema, effort, main: true, batch: false });
+  // web search on Claude and Gemini only (the OpenAI-style providers don't take it here)
+  const s = isCompat(route.provider) ? 0 : search, b = Boolean(batch) && !s && !isCompat(route.provider);
+  const r = await askWith(route, { name, system, content, schema, effort, main: true, batch: b, geminiBatch: b, search: s });
   return r.answer;
 }
 
 // Gemini only, for questions Claude can't take (audio). Logged like any other AI call. Throws if no Gemini key.
-export async function askGeminiJSON({ name, system, content, schema }) {
+// model: a Gemini name ("gemini-flash" unless a caller picks one, like the Neon check's "gemini-4-neon").
+export async function askGeminiJSON({ name, system, content, schema, model = "gemini-flash", effort = "medium" }) {
   assertPipelineBudget(name);
   const fake = fakeAnswer(name, "No Gemini in fake mode");
   if (fake) return fake.answer;
   if (!hasGemini()) throw new Error("No Gemini key in .env");
   if (typeof system === "string") system += correctionNotes(name);
-  const r = await askWith(await resolveModel("gemini-flash"), { name, system, content, schema, effort: "medium", main: true });
+  if (!String(model).startsWith("gemini-")) throw new Error(`askGeminiJSON takes a Gemini model, not "${model}".`);
+  const r = await askWith(await resolveModel(model), { name, system, content, schema, effort, main: true });
   return r.answer;
 }
 

@@ -153,6 +153,7 @@ export function parseContentRow(text) {
 }
 
 // Every Short on the channel's Content > Shorts list: { videoId, title, date, length, visibility, views, comments }.
+/** @param {{ channel: any, debugDir?: string }} o */
 export async function listShorts({ channel, debugDir }) {
   return withPage(async (page) => {
     await switchTo(page, channel);
@@ -246,9 +247,18 @@ export async function readComments({ videoId, channel, debugDir, max = 40 }) {
     await page.goto(url, { waitUntil: "domcontentloaded" });
     if (page.url().includes("accounts.google.com")) throw new Error(YT_SIGNED_OUT);
     let items = [];
-    let unfiltered = false;
+    let unfiltered = false, switched = false;
     for (let i = 0; i < 15 && !items.length; i++) {
       await sleep(1000);
+      // Wrong channel first: the filter chip can't be removed from an "Oops" page, and the filter must be cleared again
+      // on the real page after the switch.
+      if (i >= 2 && !switched && wrongChannel(await page.locator("body").innerText().catch(() => ""))) {
+        switched = true;
+        await switchTo(page, channel);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        unfiltered = false;
+        continue;
+      }
       // Studio opens this page filtered to "Response status: Unresponded", which hides every comment the owner already
       // answered (2026-10-23 full pull: 50 videos showed "No comments found" under that filter). Remove the filter
       // chip once. Not yet tried on the real page; if the chip isn't found nothing changes.
@@ -263,10 +273,6 @@ export async function readComments({ videoId, channel, debugDir, max = 40 }) {
           return true;
         }).catch(() => false);
         if (removed) await sleep(2500);
-      }
-      if (i === 3 && wrongChannel(await page.locator("body").innerText().catch(() => ""))) {
-        await switchTo(page, channel);
-        await page.goto(url, { waitUntil: "domcontentloaded" });
       }
       items = await page.evaluate((max) => {
         const roots = [...document.querySelectorAll("ytcp-comment, ytcp-comment-thread ytcp-comment, ytd-comment-renderer, ytd-comment-view-model")];

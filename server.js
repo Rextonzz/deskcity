@@ -7,12 +7,13 @@ import { config, hasPlaceholderAnthropicKey } from "./src/config.js";
 import { pipelineRouter } from "./src/routes/pipeline.js";
 import { agentIngestRoutes, agentsRouter } from "./src/routes/agents.js";
 import { startWorker } from "./src/pipeline/worker.js";
-import { every, missingContextFiles } from "./src/pipeline/util.js";
+import { every, missingContextFiles, jobsDisabled } from "./src/pipeline/util.js";
+import { loadAddons, startAddons, addonsRouter, addonPanelRouter } from "./src/addons/loader.js";
 import { recordStart } from "./src/pipeline/versions.js";
 import { upgradePasswordStorage } from "./src/passwords.js";
 import { publicSettings, ownerName, ownersHub } from "./src/hub/settings.js";
 import { PARTS } from "./src/hub/extras.js";
-import { moduleGate, pageGate, publicModules, timerOn, frontDoorHtml } from "./src/hub/modules.js";
+import { moduleGate, gateRoute, pageGate, publicModules, timerOn, frontDoorHtml } from "./src/hub/modules.js";
 import { listenHost, listenMode, networksSetting } from "./src/hub/listen.js";
 import { acquireDataLock } from "./src/hub/datalock.js";
 import { ensureDataFormat } from "./src/hub/migrations.js";
@@ -73,7 +74,7 @@ for (const level of ["log", "warn", "error"]) {
 if (process.platform === "win32" && isatty(0)) {
   const ps = [
     '$s=\'[DllImport("kernel32.dll")]public static extern IntPtr GetStdHandle(int h);[DllImport("kernel32.dll")]public static extern bool GetConsoleMode(IntPtr h,out uint m);[DllImport("kernel32.dll")]public static extern bool SetConsoleMode(IntPtr h,uint m);\'',
-    "$k=Add-Type -MemberDefinition $s -Name QuickEdit -Namespace YtHub -PassThru",
+    "$k=Add-Type -MemberDefinition $s -Name QuickEdit -Namespace Deskcity -PassThru",
     "$h=$k::GetStdHandle(-10);[uint32]$m=0;if($k::GetConsoleMode($h,[ref]$m)){[void]$k::SetConsoleMode($h,($m -band (-bnot 0x40)) -bor 0x80)}",
   ].join(";");
   try {
@@ -111,6 +112,10 @@ loginRoutes(app);
 // Everything below needs a signed-in session (or a request from this PC while no password is set).
 app.use(requireLogin);
 confirmPasswordRoutes(app);
+// Drop-in add-ons (addons/<id>/, src/addons/loader.js): off unless switched on in the settings; only those are imported.
+await loadAddons();
+app.use("/api/addons", addonsRouter());
+app.use("/addons", addonPanelRouter());
 // The old script tool page is retired (the owner, 2026-10-19): its address goes to Home.
 // The front door (2026-11-09: the campus; 2026-11-14: or the plain pages, the "pages" display). A tiny page that goes to
 // this device's pick from the View picker (campus.display in the browser), else the hub's setting: the pages go to
@@ -121,7 +126,16 @@ app.use(revalidatePolls); // the glance and agents polls: no-cache + ETag, so an
 app.use(express.static(config.publicDir, { setHeaders: staticHeaders })); // ?v= files cached for a year, the rest revalidated
 app.get("/api/hub/settings", async (req, res) => res.json({ ...publicSettings(), ...publicModules(), assetV: assetVersions(config.publicDir), teams: (await import("./src/pipeline/teams.js")).teamsOffered(new Set(publicModules().modules)) })); // owner, town, pet, display, which parts are on, team templates
 app.use("/api/pipeline", moduleGate); // a switched-off part's routes answer "switched off"
-app.use("/api/pipeline/agents", agentsRouter);
+// The agents API: /api/agents is the canonical prefix (the token-guarded hook posts at /api/agents/ingest/* are registered
+// earlier, above, and never reach this router). /api/pipeline/agents is a deprecated alias for one release (0.2.0).
+// The part gate judges the path as if it sat under /agents, so a switched-off Neural view still answers "switched off".
+const gateAgents = (req, res, next) => gateRoute({ path: "/agents" + req.path }, res, next);
+app.use("/api/agents", gateAgents, agentsRouter);
+app.use("/api/pipeline/agents", (req, res, next) => {
+  res.setHeader("Deprecation", "true");
+  res.setHeader("Link", '</api/agents>; rel="successor-version"');
+  next();
+}, agentsRouter);
 app.use("/api/pipeline", pipelineRouter);
 // Last stop for errors nothing else caught (code review 2026-10-22): a short JSON message instead of Express's
 // default page, which showed a stack trace with the PC's file paths.
@@ -155,15 +169,20 @@ const server = app.listen(config.port, host, async () => {
   }
   try {
     // The YouTube upload worker belongs to the YouTube part (src/hub/modules.js): on only when that part is.
-    if (process.env.PIPELINE_DISABLED !== "1" && timerOn("Upload worker")) startWorker();
+    if (!jobsDisabled() && timerOn("Upload worker")) startWorker();
+    // Live clipping (src/pipeline/livewatch.js): watches liveWatch creators, records, drops pieces in the inbox.
+    if (!jobsDisabled() && timerOn("Upload worker")) every("Live clipping failed", () => import("./src/pipeline/livewatch.js").then((m) => m.liveTick()), 15000, { firstMs: 20000 });
   } catch (err) {
     console.error(`The pipeline worker didn't start: ${err.message}`);
   }
   // The nightly backup on every hub, the deal watch with the cards add-on: both used to run only inside the YouTube worker.
-  if (process.env.PIPELINE_DISABLED !== "1") {
-    every("Nightly backup failed", () => import("./src/pipeline/backup.js").then((m) => m.backupTick()), 60000);
-    if (timerOn("Deal watch")) every("Deal watch failed", () => import("./src/pipeline/dealwatch.js").then((m) => m.dealWatchTick()), 60000);
-  }
+  // The backup runs whatever the jobs switch says; the deal watch stops with the other jobs. A throwaway check or test
+  // server (HUB_TEST_ROOT) never backs up: it still reads this hub's pipeline.config.json, whose backup copies go to the
+  // owner's real backup folders, so a nightly tick there would copy throwaway data over them and prune real copies.
+  if (!process.env.HUB_TEST_ROOT) every("Nightly backup failed", () => import("./src/pipeline/backup.js").then((m) => m.backupTick()), 60000);
+  if (!jobsDisabled() && timerOn("Deal watch")) every("Deal watch failed", () => import("./src/pipeline/dealwatch.js").then((m) => m.dealWatchTick()), 60000);
+  // Add-on timers (only the add-ons that are switched on; none by default), with the other jobs.
+  if (!jobsDisabled()) startAddons({ every, timerOn });
   // Card exports dropped in data/cards/import/ (collection.js importFolder).
   // A failed import (Scryfall busy) tries again every 10 min, up to 6 times; the file stays in import/ until it works.
   const importCards = (tryNo = 1) =>

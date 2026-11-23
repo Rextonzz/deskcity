@@ -7,7 +7,7 @@ import { readJson, writeJsonAtomic } from "../util.js";
 import { logEvent } from "../runlog.js";
 import { ownerName as OWNER } from "../../hub/settings.js";
 import { partsWith } from "../../hub/extras.js";
-import { grantCatalogue } from "../grants.js";
+import { askedCommands, commandRefused, grantCatalogue } from "../grants.js";
 import { DIR, ROSTER, addBlocker, autoHandOff, clip, readEvents, recordEvent, roster, slug } from "../agents.js";
 
 // ---------- folders the hub doesn't know yet ----------
@@ -43,6 +43,44 @@ export function setDeskGrants(body = {}) {
   logEvent("agent roster", { trigger: "button", desk: d.id, room: d.room, change: `access: ${want.join(", ") || "none"} (was ${before})` });
   recordEvent({ desk: d.id, room: d.room, action: "access changed", summary: want.length ? `${OWNER()} gave it: ${want.map((g) => cat[g].label).join(", ")}` : `${OWNER()} took its extra access away` }, "hub");
   return { id: d.id, grants: want };
+}
+// An approved ask that names a command ("Let X run 'git rebase --abort'?") gives the asking worker exactly that command
+// (grants.js askedCommands). The approval itself is behind the owner's password (the decide route). Returns
+// { desk, allowed: [cmd], refused: [{ cmd, why }] }, or null when the ask names no command or comes from no desk.
+export function allowAskedCommands(req) {
+  const cmds = askedCommands(req?.role);
+  if (!cmds.length || !req?.from) return null;
+  const r = roster(), d = r.desks.find((x) => x.id === slug(req.from));
+  if (!d) return null;
+  const allowed = [], refused = [];
+  d.allowed = Array.isArray(d.allowed) ? d.allowed : [];
+  for (const cmd of cmds) {
+    const why = commandRefused(cmd);
+    if (why) { refused.push({ cmd, why }); continue; }
+    if (!d.allowed.some((a) => a.cmd === cmd)) d.allowed.push({ cmd, ask: req.id, at: new Date().toISOString() });
+    allowed.push(cmd);
+  }
+  if (!d.allowed.length) delete d.allowed;
+  if (allowed.length) {
+    d.changedAt = new Date().toISOString();
+    writeJsonAtomic(ROSTER(), r);
+    logEvent("agent roster", { trigger: "button", desk: d.id, room: d.room, change: `allowed by ask ${req.id}: ${allowed.join("; ")}` });
+    recordEvent({ desk: d.id, room: d.room, action: "access changed", summary: clip(`${OWNER()} said yes: it may now run ${allowed.map((c) => `"${c}"`).join(", ")}`, 200) }, "hub");
+  }
+  return { desk: d.id, allowed, refused };
+}
+// Take back a command given by an ask (the worker's card). Behind the password, like grants.
+export function removeAllowedCommand(body = {}) {
+  const r = roster(), d = r.desks.find((x) => x.id === slug(body.id));
+  if (!d) throw new Error("No such desk.");
+  const before = (d.allowed || []).length;
+  d.allowed = (d.allowed || []).filter((a) => a.cmd !== String(body.cmd || ""));
+  if (d.allowed.length === before) throw new Error("That worker wasn't allowed that command.");
+  if (!d.allowed.length) delete d.allowed;
+  d.changedAt = new Date().toISOString();
+  writeJsonAtomic(ROSTER(), r);
+  logEvent("agent roster", { trigger: "button", desk: d.id, room: d.room, change: `command taken back: ${body.cmd}` });
+  return { id: d.id, allowed: (d.allowed || []).map((a) => a.cmd) };
 }
 // A desk's own work folder (blank clears it): where Push and Work on its own start its sessions, even when that folder
 // is mapped to another project (the YouTube pipeline lives in the hub's folder).
@@ -150,7 +188,7 @@ export async function pullCloudRelay() {
     // hand-off (autoHandOff); a refusal is logged on the sending desk.
     if (desk && x.handoff && typeof x.handoff === "object") {
       try {
-        await autoHandOff({ from: name, job: x.handoff.job ? String(x.handoff.job) : undefined, to: String(x.handoff.to || ""), text: clip(x.handoff.text, 2000), result: x.result ? String(x.result).slice(0, 7000) : null });
+        await autoHandOff({ from: name, job: x.handoff.job ? String(x.handoff.job) : undefined, to: String(x.handoff.to || ""), text: String(x.handoff.text || ""), /* not clipped: autoHandOff refuses over-long text (HANDOFF_TEXT_MAX) */ result: x.result ? String(x.result).slice(0, 7000) : null });
       } catch (err) {
         recordEvent({ desk: name, room: desk.room, action: "hand-off refused", summary: clip(err.message, 200) }, "cloud-relay");
       }

@@ -7,10 +7,11 @@
   "loginSubtitle": "",
   "pet": null,
   "addons": [],
+  "addonFolders": { "on": [], "killSwitch": false },
   "display": "3d",
-  "agents": { "mart": { "lastingPerWeek": 2 }, "autoRun": { "perDay": 5 }, "helpers": { "on": false, "perDayUsd": 1 }, "passOff": { "on": true } },
+  "agents": { "mart": { "lastingPerWeek": 2 }, "autoRun": { "perDay": 5 }, "deskWeb": { "on": true, "perJob": 5 }, "autoPush": { "on": false, "atOnce": 1, "perDay": 6 }, "helpers": { "on": false, "perDayUsd": 1 }, "passOff": { "on": false, "maxHops": 1 }, "approveOver": { "apiUsd": 0.25, "subUsd": 5 }, "cityFund": { "taxRate": 0.1, "cap": 500, "limits": { "perSpend": 0.25, "perPlayer30d": 0.1, "perWeek": 0.4, "selfCooldownDays": 7 } }, "apiQuota": { "poolUsd": 2, "perBuyUsd": 0.1, "cost": 20, "perMonth": 1 }, "districts": { "base": 150, "growth": 1.5, "depositShare": 0.3, "windowHours": 48, "quorumMin": 5, "quorumShare": 0.25, "projectCap": 0.4, "tenureDays": 7, "minEarned": 20, "lots": 4, "failFee": 0.1, "perWeek": 1, "aiVotes": true, "selfStart": true, "selfStartGapHours": 24, "fundWaitDays": 14 }, "casino": { "on": false, "name": "Casino", "dataDir": "data/casino/slots", "maxStakePerSession": 20, "stakeShare": 0.1, "minBalance": 20, "maxSessionsPerDay": 2, "gapMinutes": 90, "chance": 0.25, "perTick": 2, "betLevels": [0.1, 0.2, 0.5, 1, 2] } },
   "pipeline": { "capUsdMonth": null },
   "notify": { "enabled": false, "securityWhenOff": false },
   "backup": { "copyTo": "", "keep": 14 },
-  "kit": { "name": "Deskcity", "version": "0.1.0", "updatesUrl": "https://api.github.com/repos/Rextonzz/deskcity/releases/latest" }
+  "kit": { "name": "Deskcity", "version": "0.2.0", "updatesUrl": "https://api.github.com/repos/Rextonzz/deskcity/releases/latest" }
 }

@@ -136,7 +136,19 @@ export async function main(argv, o = {}) {
   const interactive = o.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const ask = o.ask || ((q) => new Promise((res) => { const rl = readline.createInterface({ input: process.stdin, output: process.stdout }); rl.question(q, (a) => { rl.close(); res(/^y(es)?$/i.test(a.trim())); }); }));
   const git = (...a) => { const r = run("git", a, { cwd: appDir }); return { ok: r.status === 0, out: r.stdout.trim(), raw: r.stdout, err: (r.stderr || "").trim() }; };
-  const npmCi = () => { out("Installing packages (npm ci --ignore-scripts)..."); const r = run("npm", ["ci", "--ignore-scripts"], { cwd: appDir }); if (r.status !== 0) out(`npm ci failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-3).join(" | ")}`); return r.status === 0; };
+  // Core packages, then the add-on packages (npm run addons:install: the browser add-on holds playwright). npm ci wipes node_modules, so
+  // the add-on step must follow it; a version without tools/addons-install.mjs (an old one being put back) has no add-on step.
+  const npmCi = () => {
+    out("Installing packages (npm ci --ignore-scripts)...");
+    const r = run("npm", ["ci", "--ignore-scripts"], { cwd: appDir });
+    if (r.status !== 0) { out(`npm ci failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-3).join(" | ")}`); return false; }
+    if (!fs.existsSync(path.join(appDir, "tools", "addons-install.mjs"))) return true;
+    out("Installing add-on packages (npm run addons:install)...");
+    const a = run(process.execPath, [path.join("tools", "addons-install.mjs")], { cwd: appDir });
+    if (a.stdout.trim()) out(a.stdout.trim());
+    if (a.status !== 0) { out(`Add-on packages failed: ${(a.stderr || a.stdout).trim().split("\n").slice(-3).join(" | ")}`); return false; }
+    return true;
+  };
   const selfCheck = async () => {
     if (o.selfCheck) return o.selfCheck(appDir);
     if (!fs.existsSync(path.join(appDir, "tools", "self-check.mjs"))) { out("Self-check skipped: this version has no tools/self-check.mjs."); return { pass: true }; }
@@ -264,8 +276,20 @@ export async function main(argv, o = {}) {
       fs.mkdirSync(beforeDir, { recursive: true });
       const rec = { mode: "zip", from: oldVersion, to: newVersion, fromVersion: oldVersion, toVersion: newVersion, at: new Date().toISOString(), backup: b.dir || null, beforeDir, replaced, added, codeFormat: await codeFormatOf(appDir) };
       writeJson(lastFile, rec);
-      for (const r of todo) { fs.mkdirSync(path.dirname(path.join(appDir, r)), { recursive: true }); fs.copyFileSync(path.join(src, r), path.join(appDir, r)); }
       const restore = (why) => { out(`${why}\nPutting the old files back from ${beforeDir}...`); const ok = restoreFromBefore(rec) && npmCi(); writeJson(lastFile, { ...rec, failed: why, restoredAt: new Date().toISOString() }); out(ok ? "The old version is back and your data was not touched. Start the hub as before (npm start)." : `Could not finish putting it back by itself. Copy the files in ${beforeDir} over this folder by hand, then run: npm ci --ignore-scripts`); return 1; };
+      const appRoot = path.resolve(appDir), srcRoot = path.resolve(src);
+      for (const r of todo) {
+        try {
+          const from = path.resolve(src, r), to = path.resolve(appDir, r);
+          if (!from.startsWith(srcRoot + path.sep) || !to.startsWith(appRoot + path.sep)) throw new Error(`${r} points outside the folder`);
+          if (fs.lstatSync(from).isSymbolicLink()) throw new Error(`${r} is a link`);
+          fs.mkdirSync(path.dirname(to), { recursive: true });
+          fs.copyFileSync(from, to);
+        } catch (err) {
+          // Part of the new files may already be in place: put the old ones back rather than leave a mix.
+          return restore(`Copying ${r} failed (${err.message}). Often a program has the file open.`);
+        }
+      }
       if (!npmCi()) return restore("Installing packages failed.");
       const sc = await selfCheck();
       if (!sc.pass) return restore("The self-check of the new version failed.");

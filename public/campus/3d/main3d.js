@@ -16,6 +16,8 @@ import { itemLook, itemsAt } from "./items.js";
 import { makeRiver, makeGreen, makeUnderground } from "./river.js";
 import { makePost } from "./post.js";
 import { makeLife } from "./life.js";
+import { makeCityLife3L2 } from "./citylife2.js"; // City life lane L2 (goods and records): docks, barge, library, tubes, crane, balloon banners, blimp, umbrellas
+import { makeCityLife3 } from "./citylife.js"; // City life (Living City L1): power lines, cones, bridge vans, late lamps, sunbeam, diner
 import { makeLamps } from "./lamps.js";
 import { makePet } from "./pet.js";
 import { seasonNow, crownColour, makeSeasonal } from "./seasons.js";
@@ -51,14 +53,14 @@ const rig = makeLights(scene, renderer, { phone: isPhone() });
 // Soft room light: a blurred studio environment (three's RoomEnvironment, baked once into a PMREM) lights every
 // surface from all sides, so shadowed walls stay readable and colours look like soft daylight, not flat paint.
 { const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(renderer), 0.04).texture; pm.dispose(); }
-const quality = makeQuality(renderer, (t) => rig.setShadows(t.shadows));
+const quality = makeQuality(renderer, (t) => { rig.setShadows(t.shadows); window.cityLife?.setTier(t.effects); }); // (the graphics level also decides which City life effects run)
 const post = makePost(renderer); // the ✨ heavier-PC look (post.js), off unless chosen
 const sky = makeWeather(scene), skyCol = new THREE.Color();
 let weatherShown = "";
 const PROVIDER3 = { claude: 0xe08a5a, gemini: 0x6ea8ff, grok: 0xc9ccd4, mixed: 0xb48cff, other: 0x8fd18b };
 
 // ---------- the city, rebuilt from the model whenever it changes ----------
-let city = null, picks = [], buildings = [], lamps = null, signKey = "", river = null, green = null, life = null, world = null;
+let city = null, picks = [], buildings = [], lamps = null, signKey = "", river = null, green = null, life = null, world = null, cityLife3 = null, cityLife3b = null;
 function bounds() {
   const xs = rooms.flatMap((r) => [r.x, r.x + r.w]), zs = rooms.flatMap((r) => [r.y, r.y + r.d]);
   // the quad layout: its ring road and the river behind the homes are part of the ground too
@@ -88,7 +90,7 @@ function clearCity() {
   lamps?.dispose?.();
   city.traverse((o) => { if (o.geometry && !o.parent?.dispose) o.geometry.dispose?.(); });
   scene.remove(city);
-  river?.dispose(); green?.dispose(); life?.dispose(); world?.dispose(); river = green = life = world = null;
+  river?.dispose(); green?.dispose(); life?.dispose(); world?.dispose(); cityLife3?.dispose(); cityLife3b?.dispose(); river = green = life = world = cityLife3 = cityLife3b = null;
   city = null; picks = []; buildings = []; lamps = null; seasonal = null; winBatch = null; villageBody = null;
 }
 // Instanced kit props (visual rehaul 2026-11-13): list of { m: Matrix4, c?: Color } -> a group with one instanced mesh
@@ -848,6 +850,14 @@ function buildCity() {
   const foot = buildings.map((bld) => { const r = bld.userData.room, w = bld.userData.w ?? r.w, d = bld.userData.d ?? r.d; return { x: bld.position.x, z: bld.position.z, w, d, h: (bld.userData.h - (r?.isControl ? 1.1 : 0)) * bld.scale.y }; });
   seasonal = makeSeasonal({ buildings: foot, doors: foot.map((f) => ({ x: f.x + f.w / 2, z: f.z + f.d })), square: campus.square }, SEASON);
   city.add(seasonal.group);
+  // City life (citylife.js): the diner takes a spot on the square (people walk round it), the rest reads the poll's facts.
+  cityLife3 = makeCityLife3({ campus, buildings, sign, avoid: [...navObs, ...(filler.userData.obs || []).map(([x, z, r]) => ["circle", x, z, r])] });
+  city.add(cityLife3.group); { const fp = cityLife3.footprint(); if (fp) navObs.push(fp); }
+  cityLife3.refresh();
+  // City life lane L2 (citylife2.js): the library takes ground on the lawn (people walk round it), the rest reads the hub's few counts
+  cityLife3b = makeCityLife3L2({ campus, buildings, sign, balloons, avoid: [...navObs, ...(filler.userData.obs || []).map(([x, z, r]) => ["circle", x, z, r])] });
+  city.add(cityLife3b.group); for (const fp of cityLife3b.footprints()) navObs.push(fp);
+  cityLife3b.refresh();
   batchCity();
   litWindows(); placeSitters();
   buildCityNav(b, pad, filler.userData.obs || []);
@@ -881,11 +891,17 @@ function litWindows() {
   for (const bld of buildings) {
     const r = bld.userData.room;
     const home = r.isHouse && r.desk && typeof whereIs === "function" && whereIs(r.desk) === "home";
+    // City life (citylife.js): a building over its monthly cap browns out; after hours a busy building keeps steady lit windows and a quiet one goes dark
+    const lf = window.cityLife, office = !r.isHouse && !r.isHomes, brown = office && lf?.on("grid") && lf.level(r) === "over";
+    const late = office && lf?.on("night") && typeof afterHours === "function" && afterHours() && night > 0.5, anyBusy = late && (r.floors || []).some((f) => f.busy);
     bld.setWindows((sl) => {
       // a Residences flat is lit when its owner is home; the lobby is always lit
       if (r.isHomes) { if (sl.lobby) return 1; const dk = sl.res && typeof deskById === "function" && deskById(sl.res); return dk && whereIs(dk) === "home" ? (sl.side === "south" ? 1 : 0.7) : 0; }
       const busy = r.isHouse ? home : !!r.floors?.[sl.floor]?.busy;
-      return busy ? (h(r.id + sl.side + sl.index + sl.floor) % 5 ? 1 : 0.3) : h(sl.side + sl.index + sl.floor + r.id) % 11 === 0 ? 0.5 : 0;
+      if (late && !anyBusy) return 0;
+      let v = busy ? (late ? 1 : h(r.id + sl.side + sl.index + sl.floor) % 5 ? 1 : 0.3) : late ? 0 : h(sl.side + sl.index + sl.floor + r.id) % 11 === 0 ? 0.5 : 0;
+      if (brown) v *= 0.3;
+      return v;
     });
   }
 }
@@ -1801,6 +1817,7 @@ function turn(dir) {
   glide = { t0: performance.now(), ms: 450, from: { t: controls.target.clone(), p: camera.position.clone(), z: camera.zoom }, to: { t: controls.target.clone(), z: camera.zoom }, off: null, turn: { from: camera.position.clone().sub(controls.target), to: off } };
 }
 const _stepGlide = stepGlide;
+// eslint-disable-next-line no-func-assign -- deliberate: wraps the glide step defined above
 stepGlide = (now) => {
   if (glide?.turn) {
     const k = Math.min(1, (now - glide.t0) / glide.ms), e = 1 - Math.pow(1 - k, 3);
@@ -1925,6 +1942,7 @@ function onBuilt() {
   dirty = true;
 }
 addEventListener("campus:built", onBuilt);
+addEventListener("citylife:change", () => { if (city && !view) { litWindows(); dirty = true; } }); // a City life switch or graphics level changed
 // The control layer's filter and 🚨 beacons (control.js): fade buildings outside the filter, flag ones waiting on the owner.
 addEventListener("campus:filter", () => {
   if (view || !buildings.length) return;
@@ -1972,15 +1990,17 @@ function loop(now) {
   stepGlide(now);
   step(dt);
   if (view) { think(dt, now); settleBots(); drawBots(now); rexInside(now); }
-  else { stepWalkers(dt, now); settle(window.campusNav, [...walkers.values()]); stepRex(dt, now); drawPeople(now); drawRex(now); drawBots(now); }
+  else { stepWalkers(dt, now); settle(window.campusNav, [...walkers.values()]); stepRex(dt, now); drawPeople(now); cityLife3?.drawPatrons(crowd, now); cityLife3b?.drawUmbrellas(crowd); drawRex(now); drawBots(now); }
   if (fountain && city?.visible !== false) fountain.update(now);
   river?.update(now, typeof night === "number" ? night : 0);
   for (const b of buildings) if (b.userData.riseAt) { const k = Math.min(1, (now - b.userData.riseAt) / 2600), e = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2); b.scale.y = Math.max(0.02, k >= 1 ? 1 : e); if (k >= 1) delete b.userData.riseAt; }
   green?.update?.(typeof night === "number" ? night : 0);
   if (life && !view) life.update(now, typeof night === "number" ? night : 0, [...walkers.values()].map((w) => [w._vx ?? w.x, w._vy ?? w.y]));
   if (!view) drawSmoke(now, typeof night === "number" ? night : 0);
+  if (cityLife3 && !view) cityLife3.update(now, typeof night === "number" ? night : 0, dt);
   clock?.update();
   for (const bl of balloons) { const [hx, hy, hz] = bl.userData.home, t = now / 1000 + bl.userData.ph; bl.position.set(hx + Math.sin(t * 0.05) * 9, hy + Math.sin(t * 0.4) * 0.4, hz + Math.cos(t * 0.04) * 6); bl.rotation.y = t * 0.05; }
+  if (cityLife3b && !view) cityLife3b.update(now, typeof night === "number" ? night : 0, dt); // (after the balloons move: their banners follow them)
   if (!view) seasonal?.update(now, typeof night === "number" ? night : 0);
   blobs.count = nBlob; blobs.instanceMatrix.needsUpdate = true;
   crowd.end(); wearFrameEnd();
@@ -1998,4 +2018,5 @@ resize3d();
 quality.apply();
 if (typeof data !== "undefined" && data) onBuilt();
 requestAnimationFrame(loop);
-window.__campus3d = { scene, renderer, camera, calls: () => renderer.info.render.calls, look: (x, y, z, zm) => glideTo(new THREE.Vector3(x, y, z), zm, 1) }; // look(): for screenshot checks
+// look(x, y, z, zoom): y is the height the view centres on, so a balloon or blimp can be looked at (render checks)
+window.__campus3d = { scene, renderer, camera, calls: () => renderer.info.render.calls, look: (x, y, z, zm) => { aimY = y; glideTo(new THREE.Vector3(x, y, z), zm, 1); }, dinerAt: () => cityLife3?.spot() ?? null, dinerPatrons: () => cityLife3?.patronCount() ?? -1, l2: () => cityLife3b }; // look(): for screenshot checks

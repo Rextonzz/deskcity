@@ -3,17 +3,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { readJson, resolvePath, writeJsonAtomic, every } from "../util.js";
+import { readJson, resolvePath, writeJsonAtomic, every, dayIn } from "../util.js";
 import { logEvent } from "../runlog.js";
 import { partsWith } from "../../hub/extras.js";
 import { helperMay } from "../../hub/helpers.js";
 import { ownerName as OWNER, hubFolder as HUB_DIR, hubTz, isDemo, DEMO_MESSAGE } from "../../hub/settings.js";
 import { runClaudeSession, fenceRules, hubFreeEnv } from "../leadfence.js";
-import { grantRules, whoCan } from "../grants.js";
+import { grantRules, whoCan, mergeRules } from "../grants.js";
 import { sessionRules } from "../workrules.js";
 import { requeueAfterLimit } from "./meetings.js";
-import { DIR, LOG_TOOL, addJob, clip, findJob, hookMap, jobs, openJob, openJobs, planNow, recordEvent, roster, runJob, slug, updateJob } from "../agents.js";
+import { DIR, LOG_TOOL, addJob, appendJsonl, readJsonl, clip, findJob, hookMap, jobs, openJob, openJobs, planNow, recordEvent, roster, runJob, slug, updateJob } from "../agents.js";
 import { planBlock } from "../planmeter.js";
+import { sessionGate, heldError } from "./estimate.js";
+import { runLimits } from "../../hub/runlimits.js";
 
 // Finance's plan budget (planmeter.js): why a hub-started session for this project can't start now, or null.
 function planStop(room) {
@@ -48,6 +50,8 @@ const AUTO_SCRIPTS = ["tools/run_gut.sh", "tools/run_smoke.sh", "tools/check_cha
 // leaving merge out of the GitHub checks grant.
 export const AUTO_DENIED = ["Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git push --force-with-lease:*)", "Bash(git reset --hard:*)", "Bash(git branch -D:*)", "Bash(git push origin --delete:*)", "Bash(rm:*)",
   ...["gh pr merge", "gh pr close", "gh api", "gh repo delete", "gh run delete", "gh workflow run", "gh release delete"].flatMap((c) => [`Bash(${c}:*)`, `Bash(${c} *)`])];
+// Open jobs per desk, for whoCan's order.
+const openJobCounts = () => openJobs().reduce((m, j) => ((m[j.desk] = (m[j.desk] || 0) + 1), m), {});
 const autoKids = new Map();
 // How to start Claude Code without a shell: AGENTS_CLAUDE_BIN (an .exe, or a cli.js run with Node), else the native
 // installer's claude.exe, else the npm package's cli.js, else "claude" on the PATH (Linux/macOS).
@@ -83,7 +87,15 @@ export function autonomyStatus() {
   const s = autonomyState(), now = Date.now();
   return Object.values(s).map((a) => ({ ...a, live: a.status === "running" && autoKids.has(a.desk) && Date.parse(a.until) > now })).sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0, 12);
 }
-export async function grantAutonomy({ desk: deskId, hours, untilMorning, note, by } = {}) {
+// How long a grant is planned for, in hours (until 8 a.m. for "untilMorning"; else 0.25 to 12).
+export function plannedHours({ hours, untilMorning } = {}) {
+  if (untilMorning) { const t = new Date(); t.setDate(t.getDate() + (t.getHours() >= 8 ? 1 : 0)); t.setHours(8, 0, 0, 0); return (t - Date.now()) / 3600e3; }
+  return Math.max(0.25, Math.min(12, Number(hours) || 1));
+}
+// `approved`: the owner's own action (the button with his password, or an approved Waiting for you item). A session the
+// hub starts by itself (after a board meeting) over the approval line waits for his OK (agents/estimate.js sessionGate).
+// Follow-up rounds of an approved grant carry on under that same OK.
+export async function grantAutonomy({ desk: deskId, hours, untilMorning, note, by, approved = false } = {}) {
   const d = roster().desks.find((x) => x.id === slug(deskId));
   if (!d) throw new Error("Pick a desk on the roster.");
   const lim = claudeLimit();
@@ -92,6 +104,7 @@ export async function grantAutonomy({ desk: deskId, hours, untilMorning, note, b
   { const stop = planStop(d.room); if (stop) throw new Error(stop); }
   const folder = deskFolder(d.id);
   if (!folder) throw new Error(`${d.id} has no project folder mapped on this PC (Agents page → "Which project is this?"), so the hub can't start it.`);
+  { const held = sessionGate(d, { hours: plannedHours({ hours, untilMorning }), args: { hours, untilMorning, note, by }, approve: approved }); if (held) throw heldError(held); }
   let until;
   if (untilMorning) { const t = new Date(); t.setDate(t.getDate() + (t.getHours() >= 8 ? 1 : 0)); t.setHours(8, 0, 0, 0); until = t; }
   else { const h = Math.max(0.25, Math.min(12, Number(hours) || 1)); until = new Date(Date.now() + h * 3600e3); }
@@ -160,7 +173,7 @@ function startClaudeSession({ d, folder, brief, job, until, untilText, label, ag
     brief = `${brief}\n\nAccess ${OWNER()} has given you for this project:\n${given.notes.map((n) => `- ${n}`).join("\n")}\nAnything else you need that gets refused: ask ${OWNER()} for it by name (the exact command or tool) instead of working around it.`;
   // A step it can't do goes to a worker who can, on the record, instead of being dropped or worked around.
   {
-    const can = whoCan(roster().desks, d.id), tool = LOG_TOOL();
+    const can = whoCan(roster().desks, d.id, { room: d.room, waiting: openJobCounts() }), tool = LOG_TOOL();
     brief = `${brief}\n\nWhen a step needs a command or tool you don't have (it gets refused, or it isn't on your list): don't work around it and don't quietly skip it. Hand that step to a worker who has it: node ${tool} handoff --desk ${d.id} --to <desk> --text "<the step, and where the files are>". ${can.length ? `Workers with extra access right now:\n${can.map((l) => `- ${l}`).join("\n")}` : "Nobody else has extra access right now."}\nIf none of them fits, ask ${OWNER()} for it by name: node ${tool} ask --from ${d.id} --room ${d.room} --question "..." --why "...". Either way, say in your report what you couldn't do, who you passed it to, and what is still waiting.`;
   }
   // Who can't open files, and where times come from (the owner 2026-11-11: raid-logs-qa got paths it couldn't read;
@@ -169,7 +182,9 @@ function startClaudeSession({ d, folder, brief, job, until, untilText, label, ag
     const hubRun = roster().desks.filter((x) => x.runner === "hub" && x.status === "active" && x.id !== d.id).map((x) => x.id);
     brief = `${brief}\n\n${sessionRules({ tool: LOG_TOOL(), desk: d.id, room: d.room })}\n\nWorkers the hub runs${hubRun.length ? ` (${hubRun.join(", ")})` : ""} can't open files on this PC. When you hand one of them work, name the files in the hand-off text: small text files are sent along with it; big ones (over 60 KB, like raw logs) are not, so give those steps to a worker on the PC or cut the file down first.\nTake every date and time from the clock (run: date). Never estimate or guess a time in a file, a report or a status line.`;
   }
-  const args = [...pre, "-p", "--permission-mode", "acceptEdits", "--allowedTools", [...AUTO_ALLOWED, ...given.allow].join(","), "--disallowedTools", [...AUTO_DENIED, ...fence.rules].join(","), "--output-format", "text"];
+  // A merge grant opens exactly "gh pr merge <N> --merge"; every other merge form stays denied (grants.js mergeRules).
+  const rules = mergeRules(given.allow, [...AUTO_DENIED, ...given.deny]);
+  const args = [...pre, "-p", "--permission-mode", "acceptEdits", "--allowedTools", [...AUTO_ALLOWED, ...rules.allow].join(","), "--disallowedTools", [...rules.denied, ...fence.rules].join(","), "--output-format", "text"];
   // Sessions run on the owner's Claude subscription (2026-11-09), never the API budget, and start without the hub's own
   // keys and settings (runClaudeSession, leadfence.js).
   // Survives a hub restart (the owner 2026-11-11: Pesto's session died with the 19:05 restart after two minutes). The
@@ -360,7 +375,7 @@ export async function pushJob(id) {
   if (j.status !== "queued") throw new Error(`That job is already ${j.status}.`);
   const d = roster().desks.find((x) => x.id === j.desk);
   if (!d) throw new Error("That desk is no longer on the roster.");
-  if (d.runner === "hub") return { how: "ran", ...(await runJob(id)) };
+  if (d.runner === "hub") return { how: "ran", ...(await runJob(id, { approve: true })) }; // Push is the owner's own action
   const folder = deskFolder(d.id) || roomFolder(d.room);
   if (!folder) return { how: "chat", chatUrl: d.chatUrl || null, text: j.text, desk: d.id };
   if (autoKids.has(d.id)) throw new Error(`${d.id} is already in a session. It picks this job up there, or wait for it to finish.`);
@@ -369,7 +384,7 @@ export async function pushJob(id) {
   const brief = [
     `You are ${d.id} (${d.role || "staff"}) in ${OWNER()}'s ${d.room} project. ${OWNER()} pushed one job to you; do just this job, then stop. Nobody is watching, so don't ask questions: decide and note your reasoning.`,
     "Read this folder's CLAUDE.md first and follow it (branches and PRs, never push to main, never force-push, never merge, PRs as drafts).",
-    `The job (id ${j.id}):\n${String(j.text).slice(0, 8000)}`,
+    `The job (id ${j.id}):\n${String(j.text)}`, // addJob already bounds a job's text (a hand-off by CHAIN_JOB_MAX); never cut it again here
     // the owner 2026-11-11: "any reason night agent isn't requesting resources?" The one-job brief never said it could.
     `You're not on your own. Hand a step to a teammate or the shared assistant when that's quicker than doing it yourself (node ${tool} desks lists everyone; node ${tool} handoff --desk ${d.id} --to <desk> --text "..."); what they finish comes back to you: node ${tool} inbox --desk ${d.id}. If the job needs something you don't have, ask for it instead of working around it or quietly leaving it out: a standing helper (an artist, a tester) through HR: node ${tool} request --from ${d.id} --room ${d.room} --role "<role>" --why "<what it's blocking>" --provider claude --model haiku --effort low --budget <USD/month>; a tool, an install, access, money or a command you were refused, from ${OWNER()}: node ${tool} ask --from ${d.id} --room ${d.room} --question "..." --why "<the exact thing you need and what it would let you do>". Then carry on with what you can do.`,
     `When it's done: node ${tool} done --job ${j.id} --summary "<one line>" --result-file <a file with your result>. If someone else should do the next step: node ${tool} handoff --desk ${d.id} --job ${j.id} --to <desk> --text "...". Stop by ${untilText}.`,
@@ -379,6 +394,41 @@ export async function pushJob(id) {
   if (lim) throw new Error(`Claude's usage limit is reached until ${new Date(lim).toLocaleTimeString("en-CA", { timeZone: hubTz(), hour: "numeric", minute: "2-digit" })}; push it again after that.`);
   { const stop = planStop(d.room); if (stop) throw new Error(stop); }
   return { how: "session", ...startClaudeSession({ d, folder, brief, job: j, until, untilText, label: `Pushed by ${OWNER()}: ${String(j.text).split("\n")[0].slice(0, 120)}` }) };
+}
+// ---------- auto-push (the owner 2026-11-20, option 1) ----------
+// When agents.autoPush is on (Admin, password to turn on; hub/runlimits.js), the Board timer starts queued jobs for
+// workers on this PC as if Push were tapped: oldest first, at most atOnce hub-started sessions running and perDay
+// auto-pushes in the hub's day. It skips a job whenever Push would refuse (Claude's usage limit, the project over its
+// plan share, the worker already in a session, no folder) and, unlike Push (the owner's own OK), a session estimated
+// over the approval line, which waits in Waiting for you instead. Hub-run desks aren't here: they auto-run (agents.js).
+const AUTOPUSH_LOG = () => path.join(DIR(), "autopush.jsonl");
+export function autoPushesToday(now = new Date()) {
+  const today = dayIn(hubTz(), now);
+  return readJsonl(AUTOPUSH_LOG()).filter((x) => dayIn(hubTz(), new Date(x.at)) === today).length;
+}
+export async function autoPushTick(now = new Date(), { push = pushJob } = {}) {
+  const set = runLimits().autoPush, out = [];
+  if (!set.on || isDemo() || claudeLimit()) return out;
+  let room = set.atOnce - Object.values(autonomyState()).filter((a) => a.status === "running").length;
+  let left = set.perDay - autoPushesToday(now);
+  if (room <= 0 || left <= 0) return out;
+  const r = roster();
+  const queued = jobs().filter((j) => j.status === "queued").sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  for (const j of queued) {
+    if (room <= 0 || left <= 0) break;
+    const d = r.desks.find((x) => x.id === j.desk);
+    if (!d || d.status !== "active" || d.paused || d.runner === "hub" || d.provider === "local") continue;
+    if (!(deskFolder(d.id) || roomFolder(d.room)) || autoKids.has(d.id) || planStop(d.room)) continue;
+    if (sessionGate(d, { hours: 1, args: { hours: 1, note: `auto-push of job ${j.id}`, by: "auto-push" } })) continue; // over the line: waits for the owner
+    try {
+      const res = await push(j.id);
+      if (res?.how !== "session") continue;
+      appendJsonl(AUTOPUSH_LOG(), { at: now.toISOString(), job: j.id, desk: d.id });
+      recordEvent({ desk: d.id, room: d.room, action: "auto-pushed", summary: clip(`started a session for job ${j.id} by itself (auto-push): ${String(j.text).split("\n")[0]}`, 200), job: j.id }, "hub");
+      out.push(j.id); room--; left--;
+    } catch (err) { console.warn(`Auto-push ${j.id}: ${err.message}`); }
+  }
+  return out;
 }
 function roomFolder(room) {
   for (const [f, v] of Object.entries(hookMap())) if (v?.room === room && fs.existsSync(f)) return claudeFolder(f) || f;

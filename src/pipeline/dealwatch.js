@@ -105,7 +105,7 @@ export async function watchLists(cfg = watchConfig()) {
         source: path.basename(sheet),
         petDeck: [...new Set(d.deck.map((c) => c.name))],
         deck: d.deck,
-        wishlist: d.wishlist.map((w) => ({ ...w, setName: names[w.setCode.toUpperCase()] || w.setCode })),
+        wishlist: d.wishlist.map((w) => ({ ...w, setName: names[String(w.setCode || "").toUpperCase()] || w.setCode || "" })),
         needed: d.needed,
       };
     } catch (err) {
@@ -233,7 +233,13 @@ async function runScan() {
   const prevKeys = prev ? new Set(prev.items.map((i) => i.key)) : csvKeys(cfg.csvPath);
   const compare = Boolean(prevKeys);
   const page = await newPage();
-  const bl = cardStores().buylistUrl ? await newPage() : null; // no buy list address in the settings: that step is skipped
+  let bl = null; // no buy list address in the settings: that step is skipped
+  try {
+    if (cardStores().buylistUrl) bl = await newPage();
+  } catch (err) {
+    await page.close().catch(() => {}); // the first tab would stay open until a restart
+    throw err;
+  }
   try {
     await page.goto(shopSearchUrl(), { waitUntil: "domcontentloaded" });
 
@@ -345,13 +351,13 @@ async function runScan() {
       const copies = (inStock[w.name] || []).map((c) => {
         // a local store rarely shows collector numbers, so a same-set, same-finish copy counts; numberSeen says if it was confirmed.
         const printing = sameSet(c.set, w.setName) && c.foil === w.foil;
-        const numberSeen = Boolean(w.number) && new RegExp(`(^|[^0-9])0*${w.number}([^0-9]|$)`).test(`${c.name} ${c.set}`);
+        const numberSeen = Boolean(w.number) && new RegExp(`(^|[^0-9])0*${String(w.number).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^0-9]|$)`).test(`${c.name} ${c.set}`);
         const deal = printing && w.target != null && (c.price <= w.target || (["Dmg", "MP"].includes(c.condition) && c.price <= w.target * 0.75));
         return { ...c, printing, numberSeen, deal };
       });
       return { ...w, copies };
     });
-    for (const w of wishOut) for (const c of w.copies.filter((c) => c.deal)) deals.push({ kind: "E", ...c, target: w.target, wantedNumber: w.number, numberSeen: c.numberSeen });
+    for (const w of wishOut) for (const c of w.copies.filter((c) => c.deal)) deals.push({ kind: "E", ...c, target: w.target, wantedNumber: w.number, numberSeen: c.numberSeen, isNew: Boolean(prev) && !(prev.wishlist || []).some((x) => x.copies?.some((y) => y.deal && y.url === c.url && y.store === c.store && y.condition === c.condition)) });
 
     const result = { at: new Date().toISOString(), ms: Date.now() - started, source: lists.source, items, deals, needed, wishlist: wishOut, products: products.length };
     writeJsonAtomic(LATEST(), result);

@@ -3,7 +3,7 @@
 //    /vendor/ (three.js, pinned to r160 in the page's import map) and /campus/3d/kit.json (its ?v= is worked out from the
 //    file's size and modified time when the hub starts and handed to the page in /api/hub/settings as assetV).
 //  - Everything else (pages, the campus scripts, CSS) is asked again on every load with its ETag: a 304 costs no body.
-//  - /api/pipeline/glance and /api/pipeline/agents are polled every few seconds: "no-cache" plus Express's weak ETag
+//  - /api/pipeline/glance and /api/agents (alias: /api/pipeline/agents) are polled every few seconds: "no-cache" plus Express's weak ETag
 //    from the JSON body, so an unchanged answer is a 304 with no body.
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +41,7 @@ export function assetVersions(publicDir) {
 // "at" time of its own (nothing in the campus reads it), which would give every poll a new ETag, so its ETag is worked out
 // from the body without that key. Other moving parts (a live worker's clock inside the agents payload) are in the payload
 // itself: slimming that is the agents lane's job, not this file's.
-const POLLED = new Map([["/api/pipeline/glance", ["at"]], ["/api/pipeline/agents", []]]);
+const POLLED = new Map([["/api/pipeline/glance", ["at"]], ["/api/pipeline/agents", []], ["/api/agents", []], ["/api/agents/city", ["at"]], ["/api/pipeline/agents/city", ["at"]]]);
 export function revalidatePolls(req, res, next) {
   const ignore = req.method === "GET" ? POLLED.get(req.path.replace(/\/+$/, "")) : undefined;
   if (!ignore) return next();

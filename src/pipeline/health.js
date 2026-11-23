@@ -355,7 +355,8 @@ async function todaysVideo(id, ch, cfg) {
   if (ch.channelId) {
     try {
       for (const v of await exclusive(() => listShorts({ channel: ch }))) {
-        const d = v.date && dayIn(tz, new Date(`${v.date} 12:00`));
+        const when = v.date ? new Date(`${v.date} 12:00`) : null;
+        const d = when && !Number.isNaN(when.getTime()) ? dayIn(tz, when) : null; // a date Studio words differently skips this video, not the whole channel
         if (/Public/.test(v.visibility || "") && (d === today || d === yesterday)) posted.add(v.videoId);
         if (/Scheduled/.test(v.visibility || "") && d && d >= today) next.add(v.videoId);
         if (!/Scheduled|Public/.test(v.visibility || "") || d !== today) continue;
@@ -440,7 +441,7 @@ export function startHealthCheck({ alert = true, trigger = "daily" } = {}) {
 ${r.question.length} rule${r.question.length === 1 ? "" : "s"} to question, ${r.proposals.length} suggested edit${r.proposals.length === 1 ? "" : "s"}.`,
             tags: ["memo"],
             priority: 3,
-            url: dashboardHome()?.replace(/home\.html$/, `stats-${id}.html`),
+            url: dashboardHome()?.replace(/home\.html$/, fs.existsSync(resolvePath(`public/stats-${id}.html`)) ? `stats-${id}.html` : "stats.html"),
           }),
         )
         .catch((err) => console.warn(`Rules review for ${id} failed: ${err.message}`));

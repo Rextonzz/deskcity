@@ -1,3 +1,4 @@
+// @ts-check
 // Nightly backup of what can't be rebuilt: the trackers, the channel reference files, settings, and every job's
 // record (not the videos). One dated folder per night in backup.dir, keeping the last backup.keep (default 14).
 // Point backup.dir at a OneDrive or Google Drive folder and the copies leave the PC too. backup.copies is a list of
@@ -133,6 +134,18 @@ export function backupSummary() {
     extra.push({ dir: copyToDir, from: "copyTo", ran: !!st, ok: st ? st.ok : null, error: st?.error || null, lastOk: st?.lastOk || null, keep: st?.keep || null });
   }
   return { dir: backupDir(cfg), keep: keepCount(cfg), copyToDir, extra, last, copy: last?.copyTo || null };
+}
+
+// Copy onto a live file by way of a temp file beside it, then rename, so a reader never sees a half-written file.
+function copyOver(from, to) {
+  const tmp = `${to}.restoring`;
+  try {
+    fs.copyFileSync(from, tmp);
+    fs.renameSync(tmp, to);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    throw err;
+  }
 }
 
 export function runBackup({ trigger = "button" } = {}) {
@@ -277,7 +290,7 @@ export function restoreBackup(name, picks) {
         fs.copyFileSync(to, path.join(undo, f.rel));
       }
       fs.mkdirSync(path.dirname(to), { recursive: true });
-      fs.copyFileSync(path.join(base, name, f.rel), to);
+      copyOver(path.join(base, name, f.rel), to);
       done.push(f.rel);
     } catch (err) {
       // Usually a tracker open in Excel.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deskcity installer for Mac and Linux. Run it with: bash install.sh
 # Safe to run again; each step skips what is already done.
-#   bash install.sh --yes               take the defaults and ask nothing (basic setup, no password, no autostart, do not start)
+#   bash install.sh --yes               take the defaults and ask nothing (basic setup, NO password (loud warning), no autostart, do not start)
 #   bash install.sh --remove-autostart  remove the Linux start-at-sign-in entry this installer can make
 # Needs no admin rights and sends nothing anywhere (npm fetches the packages, that is all).
 # It never reads or prints your .env file. Mac and Linux are untested on real systems; Windows is the tested one.
@@ -89,6 +89,7 @@ else
   npm install || fail "npm install did not finish. Read the lines above for the reason (often no internet). Fix that and run this again."
   echo "      Packages installed. OK."
 fi
+npm run addons:install || echo "      Some add-on packages did not install. You can retry any time with: npm run addons:install"
 
 echo "[3/8] Your keys file (.env)..."
 if [ -f .env ]; then
@@ -110,9 +111,20 @@ echo "[4/8] Dashboard password..."
 if node tools/setup.mjs --check | grep -q "dashboard password set"; then
   echo "      A password is already set. Skipped."
 else
-  ask "Set a dashboard password now? (needed for spending and phone access)" N N
+  # Enter = yes when you are asked. With --yes nothing is asked and the interactive set-password is not run.
+  ask "Set a dashboard password now? (needed for spending and phone access)" Y N
   if [ "$ANS" = "Y" ]; then
     npm run set-password || echo "      No password was set. You can run npm run set-password any time."
+  elif [ "$YES" = "1" ]; then
+    echo
+    echo "      ####################################################################"
+    echo "      #  WARNING: NO DASHBOARD PASSWORD IS SET.                          #"
+    echo "      #  This unattended install (--yes) skipped it. Until you run       #"
+    echo "      #      npm run set-password                                        #"
+    echo "      #  the hub runs WITHOUT a password: anything on this computer can  #"
+    echo "      #  start paid work (monthly caps and hourly limits still apply).   #"
+    echo "      ####################################################################"
+    echo
   else
     echo "      Skipped. Run npm run set-password any time. Until then anything on this computer can start paid work."
   fi

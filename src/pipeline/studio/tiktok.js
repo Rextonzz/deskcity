@@ -66,7 +66,7 @@ async function postTikTokNow({ handle, file, caption, privacy, shotsDir, schedul
     await editor.waitFor({ timeout: 180000 });
     await sleep(2000);
     // The whole caption goes in at once: typing it word by word let the editor jump the cursor and scramble it
-    // (2026-10-19: "With Receipts 📊 LudwigBACKS Reeves"). Escape closes any hashtag suggestion list.
+    // (2026-10-19: a title came out with its words swapped and run together). Escape closes any hashtag suggestion list.
     // The editor sometimes isn't ready yet and drops the text (2026-10-19 17:44: box stayed empty), so it's
     // read back and tried again, the last time with Playwright's fill.
     const firstWords = caption.trim().split(/\s+/).slice(0, 3).join(" ");
@@ -107,10 +107,17 @@ async function postTikTokNow({ handle, file, caption, privacy, shotsDir, schedul
     await sleep(3000);
     // TikTok sometimes asks to confirm while its content check is still running.
     await page.getByRole("button", { name: /^post now$/i }).first().click({ timeout: 5000 }).catch(() => {});
-    await Promise.race([
-      page.getByText(/your video (has been|is being) (uploaded|posted)|video published|manage your posts/i).first().waitFor({ timeout: 120000 }),
-      page.waitForURL(/tiktokstudio\/content/, { timeout: 120000 }),
-    ]).catch(() => {});
+    // Fail closed: with no sign that TikTok took the post, don't go on to report the newest video in the list (which would
+    // be an older one) as this post. The error is marked afterPost (pressed), so the job is not posted again by itself.
+    let confirmed = false;
+    try {
+      await Promise.race([
+        page.getByText(/your video (has been|is being) (uploaded|posted)|video published|manage your posts/i).first().waitFor({ timeout: 120000 }),
+        page.waitForURL(/tiktokstudio\/content/, { timeout: 120000 }),
+      ]);
+      confirmed = true;
+    } catch {}
+    if (!confirmed) throw new Error("TikTok didn't confirm the post within 2 minutes, so it may or may not be up. Check TikTok before trying again.");
     await sleep(3000);
     await shot("done");
 

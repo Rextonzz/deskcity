@@ -1,6 +1,8 @@
 # Deskcity
 
-Deskcity is one place on your own computer to see every AI worker you use, who is doing which job, what each costs against a monthly cap, and how good the work was.
+**Deskcity — A local-first hub and visual campus for every AI worker: jobs, caps, approvals, and cross-model hand-offs.**
+
+Deskcity is one place on your own computer to see every AI worker you use, who is doing which job, what each costs against a monthly cap, and how good the work was. Hard caps stop paid jobs the hub runs itself; coding agents that run outside the hub report their own cost estimates.
 
 Licence: MIT. It is free, and you pay your own AI providers.
 
@@ -12,7 +14,7 @@ Licence: MIT. It is free, and you pay your own AI providers.
 
 ## What it does
 
-- **Shows all your AI workers in one place.** Claude, Gemini, OpenAI-style and local models, and coding agents such as Claude Code.
+- **Shows all your AI workers in one place.** Cloud and local models, and the coding agents you run yourself.
 - **Shows who does which job**, and how work is handed from one worker to the next.
 - **Tracks what each worker costs** against a monthly cap. A worker the hub runs cannot start a new job once it has used its cap; its jobs run one at a time, so jobs started together cannot all slip under it. The hub runs only models it has a price for.
 - **Scores every finished job from 0 to 100.** The score is a guide you can overrule with a thumbs up or down.
@@ -25,10 +27,10 @@ The short list above is the core. The full list, each with its section in `docs/
 **Work across models**
 
 - **Chain a job across models.** When you give a job, pick up to three more workers to take it next, each on its own model. When one step ends, the next worker gets the task and the last result. Steps for workers the hub runs start by themselves. (Section 6.)
-- **Two kinds of worker.** Hub-run workers: the hub calls the model itself (Claude, Gemini, OpenAI-style APIs, or a local model server). Reporting workers: tools that run outside the hub, such as Claude Code and other coding agents, chat apps and scripts, report what they did. (Section 5.)
-- **One command connects Claude Code.** A hook makes every Claude Code session in a project folder report in. Other tools report through one small script. (`docs/kit/REPORTING.md`.)
-- **A declined job can go to the next provider.** When a provider's filter refuses a harmless job, the hub notes who declined and why, and passes it once to the next provider you have a key for. Serious reasons always stop and come to you. (Section 6.)
-- **Workers can hand work on by themselves**, with a limit on how long a chain gets and how many paid jobs start per day without you. (Section 6.)
+- **Two kinds of worker.** Hub-run workers: the hub calls the model itself (a cloud model through its API, or a local model server). Reporting workers: tools that run outside the hub, such as coding agents, chat apps and scripts, report what they did. (Section 5.)
+- **One command connects your coding agent.** A hook makes every Claude Code session in a project folder report in. Other tools report through one small script. (`docs/kit/REPORTING.md`.)
+- **A declined job can go to the next provider (opt-in, off on a fresh install).** When a provider's own refusal filter declines a harmless job, the hub notes who declined and why, and passes it one hop to the next provider you have a key for. Turning it on needs your dashboard password, and each hop checks the next worker's monthly cap. Serious reasons always stop and come to you. (Section 6.)
+- **Workers can hand work on by themselves**, once you turn AI helpers on, with a limit on how long a chain gets and how many paid jobs start per day without you. (Section 6.)
 
 **See what happened**
 
@@ -41,6 +43,7 @@ The short list above is the core. The full list, each with its section in `docs/
 
 - **Monthly caps per worker**, hourly limits on spending actions, and a password on anything that spends. (Section 7.)
 - **AI helpers are off until you switch them on**, with their own daily limit. (Section 7.)
+- **An approval line**: a new job or hub-started session estimated over $0.25 (API) or $5 (session) waits for your OK. (Section 7.)
 - **HR.** A project lead asks for staff; HR checks the request against your budget and models; you approve the hire. (Section 5.)
 - **Waiting for you.** One list for hires, questions, finished jobs and money warnings. (Section 6.)
 
@@ -77,11 +80,13 @@ Just want to look around? After `npm install`, run `npm run demo` and open <http
 
 ## Quick start (about 5 minutes)
 
-You need [Node.js](https://nodejs.org) 20 or newer. Windows is the main tested system (see the FAQ for Mac and Linux).
+You need [Node.js](https://nodejs.org) 20 or newer.
+
+**Windows-tested (macOS / Linux untested).** The installer and the hub are used and tested on Windows. `install.sh` and `start.sh` exist for Mac and Linux but have not been run on real systems; see the FAQ.
 
 **Windows: double-click `install.cmd`. Mac or Linux: run `bash install.sh`.**
 
-It checks Node.js, installs the packages, makes your `.env` file, offers to set a password and a first setup, and checks the result. Each step says what it is doing, and you can run it again safely: it skips what is done. It needs no admin rights and sends nothing anywhere (npm fetches the packages, that is all). Optional extras, each off unless you say yes: a desktop icon and start at sign-in on Windows, and start at sign-in on Linux.
+It checks Node.js, installs the packages, makes your `.env` file, asks whether to set a dashboard password (Enter means yes) and offers a first setup, and checks the result. An unattended install (`--yes`) asks nothing, skips the password and prints a loud warning that the hub runs without one until you run `npm run set-password`. Each step says what it is doing, and you can run it again safely: it skips what is done. It needs no admin rights and sends nothing anywhere (npm fetches the packages, that is all). Optional extras, each off unless you say yes: a desktop icon and start at sign-in on Windows, and start at sign-in on Linux.
 
 **Start it any time with `start.cmd` (or `bash start.sh`).** It opens your browser when the hub is ready and starts the hub again 10 seconds after a crash. To keep it from opening the browser, set `DESKCITY_NO_BROWSER=1`.
 

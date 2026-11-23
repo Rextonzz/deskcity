@@ -1,3 +1,4 @@
+// @ts-check
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -87,11 +88,11 @@ if (stateLost) setTimeout(() => securityAlert("Every device was signed out", `Th
 
 // Devices that signed in before: a signed id in their own cookie that's on the list, from the same kind of browser.
 const DEVICE_COOKIE = "ytw_device";
-function knownDevice(req, ua) {
+export function knownDevice(req, ua) {
   const raw = (req.headers.cookie || "").split(/;\s*/).find((c) => c.startsWith(`${DEVICE_COOKIE}=`))?.slice(DEVICE_COOKIE.length + 1);
   if (!raw) return null;
   const [id, mac] = raw.split(".");
-  if (!id || !mac || mac.length !== sign(`device.${id}`).length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(sign(`device.${id}`)))) return null;
+  if (!id || !mac || !sameBytes(mac, sign(`device.${id}`))) return null; // sameBytes hashes both sides, so odd characters in a cookie can't throw
   const d = state.devices?.[id];
   return d && d.name === deviceName(ua) ? id : null;
 }
@@ -128,10 +129,16 @@ const sameBytes = (a, b) => crypto.timingSafeEqual(crypto.createHash("sha256").u
 // a proxy) also connects from loopback for every outside visitor, but it names the hub differently or adds one of
 // these headers (security plan 06).
 const FORWARD_HEADERS = ["x-forwarded-for", "x-forwarded-host", "forwarded", "x-real-ip", "cf-connecting-ip", "true-client-ip", "tailscale-user-login", "tailscale-funnel-request", "fly-client-ip", "x-original-forwarded-for"];
+// The name part of a Host header: "[::1]:3000" -> "::1", "pc:3000" -> "pc". Junk after the bracket gives "".
+export function hostOf(raw) {
+  raw = String(raw || "").toLowerCase().trim();
+  if (raw.startsWith("[")) return /^\[([^\]]+)\](?::\d+)?$/.exec(raw)?.[1] || "";
+  return raw.replace(/:\d+$/, "");
+}
 export function isLocal(req) {
   if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket?.remoteAddress)) return false;
   const raw = String(req.headers?.host || "").toLowerCase().trim();
-  const host = raw.startsWith("[") ? raw.slice(1, raw.indexOf("]")) : raw.replace(/:\d+$/, "");
+  const host = hostOf(raw);
   if (!["localhost", "127.0.0.1", "::1"].includes(host)) return false;
   return !FORWARD_HEADERS.some((h) => req.headers?.[h] !== undefined);
 }
@@ -171,7 +178,7 @@ const PC = os.hostname().toLowerCase();
 function hostAllowed(req) {
   const raw = String(req.headers.host || "").toLowerCase().trim();
   if (!raw) return false;
-  const host = raw.startsWith("[") ? raw.slice(1, raw.indexOf("]")) : raw.replace(/:\d+$/, "");
+  const host = hostOf(raw);
   if (["localhost", "127.0.0.1", "::1", PC, `${PC}.local`, `${PC}.lan`, `${PC}.home`].includes(host)) return true;
   // Tailscale's own names for this PC (desktop-name.tailnet-name.ts.net); ts.net names are Tailscale's alone.
   if (host.startsWith(`${PC}.`) && host.endsWith(".ts.net")) return true;
@@ -194,9 +201,14 @@ export function networkGuard(req, res, next) {
   next();
 }
 
-function readCookie(req, name = COOKIE) {
+export function readCookie(req, name = COOKIE) {
   const match = (req.headers.cookie || "").split(/;\s*/).find((c) => c.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match.slice(name.length + 1));
+  } catch {
+    return null; // a cookie with broken % codes is just "not signed in", not a crash
+  }
 }
 
 function validSession(req) {
@@ -281,8 +293,21 @@ export function securityHeaders(req, res, next) {
 // Blocks form posts and fetches coming from other websites.
 export function sameOrigin(req, res, next) {
   if (req.method === "GET" || req.method === "HEAD") return next();
+  if (String(req.headers["sec-fetch-site"] || "") === "cross-site") return res.status(403).json({ error: "Cross-site request blocked" });
   const origin = req.headers.origin;
-  if (!origin) return next();
+  if (!origin) {
+    // No Origin: scripts and hooks on this PC send none, so they pass, but a browser page whose Referer names another
+    // site is blocked.
+    const ref = req.headers.referer;
+    if (ref) {
+      let rh = null;
+      try {
+        rh = new URL(ref).host;
+      } catch {}
+      if (rh !== req.headers.host) return res.status(403).json({ error: "Cross-site request blocked" });
+    }
+    return next();
+  }
   // Browsers send "null" for some form posts; allow that only for the sign-in and sign-out forms. Not "Sign out
   // everywhere": on a hub with no password another website could post it (S9); the hub's own pages send their origin.
   if (origin === "null") return ["/login", "/logout"].includes(req.path) ? next() : res.status(403).json({ error: "Cross-site request blocked" });
@@ -317,7 +342,7 @@ const usedCaptchas = new Map(); // mac -> expiry, so each challenge works once
 const rand = (min, max) => min + crypto.randomInt(0, 10000) / 10000 * (max - min);
 const captchaMac = (answer, expires) => sign(`captcha:${answer}:${expires}`);
 
-function newCaptcha() {
+export function newCaptcha() {
   const digits = Array.from({ length: 5 }, () => String(crypto.randomInt(2, 10)));
   const expires = String(Math.floor(Date.now() / 1000) + 300);
   const W = 220, H = 70;
@@ -337,13 +362,15 @@ function newCaptcha() {
   return { image: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`, token: `${expires}.${captchaMac(digits.join(""), expires)}`, answer: digits.join("") };
 }
 
-function checkCaptcha(token, answer) {
+export function checkCaptcha(token, answer) {
   const [expires, mac] = String(token || "").split(".");
   const now = Date.now() / 1000;
   for (const [m, exp] of usedCaptchas) if (exp < now) usedCaptchas.delete(m);
-  if (!mac || Number(expires) < now || usedCaptchas.has(mac)) return false;
+  if (!mac || !(Number(expires) >= now) || Number(expires) > now + 600 || usedCaptchas.has(mac)) return false;
+  // Only a challenge this hub made is remembered, so made-up tokens can't fill the map.
+  if (!sameBytes(mac, captchaMac(String(answer || "").replace(/\s/g, ""), expires))) return false;
   usedCaptchas.set(mac, Number(expires));
-  return sameBytes(mac, captchaMac(String(answer || "").replace(/\s/g, ""), expires));
+  return true;
 }
 
 // RFC 6238 codes (30 s, 6 digits, SHA-1), as Google Authenticator, Microsoft Authenticator and 1Password make them.
@@ -366,7 +393,7 @@ export function totpCode(secret, counter) {
   return String((h.readUInt32BE(o) & 0x7fffffff) % 1e6).padStart(6, "0");
 }
 
-let lastTotpCounter = 0; // each code works once
+let lastTotpCounter = Number(state.lastTotpCounter) || 0; // each code works once, also across a restart
 function checkTotp(code) {
   const secret = totpSecret();
   if (!secret) return true;
@@ -376,6 +403,10 @@ function checkTotp(code) {
   for (const c of [now - 1, now, now + 1]) {
     if (c > lastTotpCounter && sameBytes(typed, totpCode(secret, c))) {
       lastTotpCounter = c;
+      state.lastTotpCounter = c;
+      try {
+        saveState();
+      } catch {}
       return true;
     }
   }
@@ -394,6 +425,10 @@ function lockedOut(req) {
   return null;
 }
 
+// Where to go after sign-in: a path on this hub only. "//x" and "/\x" both mean another site to a browser.
+export function safeNext(next) {
+  return typeof next === "string" && /^\/(?![/\\])/.test(next) && !/[\u0000-\u001f]/.test(next) ? next : "/campus.html";
+}
 export function loginRoutes(app) {
   app.get("/login", (req, res) => res.type("html").send(loginPage(!passwordHash())));
 
@@ -433,7 +468,7 @@ export function loginRoutes(app) {
     const expires = String(Math.floor(Date.now() / 1000) + MAX_AGE_S);
     const value = `${expires}.${state.sessionVersion}`;
     res.cookie(COOKIE, `${value}.${sign(value)}`, { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: MAX_AGE_S * 1000, path: "/" });
-    const next = typeof req.query.next === "string" && /^\/(?!\/)/.test(req.query.next) ? req.query.next : "/campus.html";
+    const next = safeNext(req.query.next);
     res.redirect(303, next);
   });
 
@@ -481,19 +516,20 @@ export function confirmPasswordRoutes(app) {
 }
 
 export function warnIfNoPassword() {
+  if (!process.env.DASHBOARD_SESSION_KEY) console.warn("Warning: DASHBOARD_SESSION_KEY isn't set in .env, so sign-in cookies are signed only with the password hash and 2FA secret. Add a long random value for it.");
   if (!passwordHash()) console.warn("Warning: no dashboard password is set, so only this PC can open the app. Run `npm run set-password` to use it from your phone.");
 }
 
 import { loginSubtitle } from "./hub/modules.js";
 function loginPage(noPassword, error = "") {
   const cap = newCaptcha();
-  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · ${ownersHub()}</title><meta name="theme-color" content="#0f0f0e">
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · ${esc(ownersHub())}</title><meta name="theme-color" content="#0f0f0e">
 <style>body{font-family:system-ui,sans-serif;background:#0f0f0e;color:#f0efec;color-scheme:dark;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;box-sizing:border-box}
 form{background:#1a1a19;border:1px solid #2c2c2a;border-radius:12px;padding:24px;width:100%;max-width:340px;display:grid;gap:12px}
 input,button{font:inherit;font-size:16px;padding:10px 12px;border-radius:8px;border:1px solid #3a3a37;background:#0f0f0e;color:#f0efec}button{background:#dc2626;color:#fff;border:0;font-weight:600}
 .err{color:#fca5a5;font-size:14px;margin:0}.note{color:#9a9890;font-size:14px;margin:0}</style></head><body>
-<form method="post"><div style="display:flex;gap:10px;align-items:center"><div style="width:36px;height:36px;border-radius:8px;background:#2c2c2a;display:grid;place-items:center;font-weight:700">⌂</div><div><h1 style="margin:0;font-size:20px">${ownersHub()}</h1><p class="note" style="font-size:13px">${esc(loginSubtitle())}</p></div></div>
+<form method="post"><div style="display:flex;gap:10px;align-items:center"><div style="width:36px;height:36px;border-radius:8px;background:#2c2c2a;display:grid;place-items:center;font-weight:700">⌂</div><div><h1 style="margin:0;font-size:20px">${esc(ownersHub())}</h1><p class="note" style="font-size:13px">${esc(loginSubtitle())}</p></div></div>
 ${noPassword ? `<p class="note">No password is set yet. On your PC, run <code>npm run set-password</code>, restart the app, then sign in here.</p>` : ""}
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <input type="password" name="password" placeholder="Password" autocomplete="current-password" autofocus required>

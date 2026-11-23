@@ -1,4 +1,6 @@
+// @ts-check
 import { startRun, logEvent } from "./runlog.js";
+import { LIVE_NAME } from "./livewatch.js";
 import fs from "node:fs";
 import path from "node:path";
 import { channelModule, withAbility } from "./channels/index.js";
@@ -12,11 +14,12 @@ import { studioLabels } from "./schedule.js";
 import { alertJob, sendAlert } from "./notify.js";
 import { healthTick, healthStatus, coverage } from "./health.js";
 import { ownerName as OWNER } from "../hub/settings.js";
-import { Hold, loadPipelineConfig, channelCfg, channelName, pipelineTz, dayIn, resolvePath, standbyState } from "./util.js";
+import { Hold, SkipJob, loadPipelineConfig, channelCfg, channelName, pipelineTz, dayIn, resolvePath, standbyState } from "./util.js";
 import { aiContext, skipBatch } from "./context.js";
 import { aiSettings } from "./ai.js";
 import { recordCorrection, recordHoldOutcome } from "./corrections.js";
 import { pauseState } from "./admin.js";
+import { isNetworkError, netCode } from "./fetch-retry.js";
 
 // The channel modules (channels/index.js): { channel id: its module } for every channel that has one.
 export const channels = new Proxy({}, { get: (_, id) => channelModule(id) });
@@ -37,7 +40,39 @@ function moveFile(from, to) {
   }
 }
 
-function scanInboxes() {
+// Moves a job folder. A rename, or copy then delete when it crosses volumes (EXDEV), like moveFile does for a file.
+export function moveDir(from, to) {
+  try {
+    fs.renameSync(from, to);
+  } catch (err) {
+    if (err.code !== "EXDEV") throw err;
+    fs.cpSync(from, to, { recursive: true, errorOnExist: true });
+    fs.rmSync(from, { recursive: true, force: true });
+  }
+}
+
+// The same file, whatever the slashes or (on Windows) the capital letters: C:\a\b.mp4 is c:/a/B.mp4.
+export function sameFile(a, b) {
+  if (!a || !b) return false;
+  const norm = (p) => (process.platform === "win32" ? path.resolve(String(p)).toLowerCase() : path.resolve(String(p)));
+  return norm(a) === norm(b);
+}
+
+// What a job's status is once it is on YouTube with this visibility.
+export const statusForVisibility = (visibility) => ({ private: "private", schedule: "scheduled", public: "published" })[visibility] ?? "done";
+
+let scanning = false;
+export function scanInboxes() {
+  if (scanning) return; // two overlapping scans could both see the same size and take a half-copied file as finished
+  scanning = true;
+  try {
+    scanInboxesNow();
+  } finally {
+    scanning = false;
+  }
+}
+
+function scanInboxesNow() {
   const cfg = loadPipelineConfig();
   for (const [name, ch] of Object.entries(cfg.channels)) {
     if (!ch.enabled) continue;
@@ -46,18 +81,33 @@ function scanInboxes() {
     for (const file of fs.readdirSync(inbox)) {
       if (!VIDEO.test(file)) continue;
       const full = path.join(inbox, file);
-      const { size, mtimeMs } = fs.statSync(full);
-      const stable = seen.get(full) === size && Date.now() - mtimeMs > 5000;
-      seen.set(full, size);
-      if (!stable) continue;
-      seen.delete(full);
-      const job = createJob({ channel: name, sourceName: file });
-      const dest = path.join(jobDir(job.id), "source" + path.extname(file).toLowerCase());
-      moveFile(full, dest);
-      job.data.source = dest;
-      if (TEST_NAME.test(file)) job.data.testRun = true;
-      logJob(job, `Picked up ${file} from the ${ch.name} inbox${job.data.testRun ? " as a test run (won't post or touch the trackers)" : ""}`);
-      saveJob(job);
+      let job = null, moved = false;
+      try {
+        const { size, mtimeMs } = fs.statSync(full);
+        const stable = seen.get(full) === size && Date.now() - mtimeMs > 5000;
+        seen.set(full, size);
+        if (!stable) continue;
+        seen.delete(full);
+        job = createJob({ channel: name, sourceName: file });
+        const dest = path.join(jobDir(job.id), "source" + path.extname(file).toLowerCase());
+        moveFile(full, dest);
+        moved = true;
+        job.data.source = dest;
+        if (TEST_NAME.test(file)) job.data.testRun = true;
+        // A piece of a live stream (livewatch.js): strong moments only, and posted as soon as the owner approves it.
+        if (LIVE_NAME.test(file)) job.data.postNow = true;
+        logJob(job, `Picked up ${file} from the ${ch.name} inbox${job.data.testRun ? " as a test run (won't post or touch the trackers)" : ""}`);
+        saveJob(job);
+      } catch (err) {
+        // A file still locked by Explorer, OBS or Drive sync can't be moved yet. Take back the empty job made for it
+        // (never one that already holds the video) so it isn't picked up twice, and look again next time.
+        console.error(`Inbox: couldn't pick up ${file} yet: ${err.message}`);
+        if (job && !moved) {
+          try {
+            fs.rmSync(jobDir(job.id), { recursive: true, force: true });
+          } catch {}
+        }
+      }
     }
   }
 }
@@ -70,7 +120,7 @@ const mod0 = (job) => channels[job.channel]?.stages[0];
 const numbered = (id) => typeof channels[id]?.renumber === "function";
 export function batchReady(job) {
   if (skipBatch.has(job.id)) job.data.noBatch = true;
-  if (!aiSettings().batch?.on || job.data.testRun || job.data.noBatch) return false;
+  if (!aiSettings().batch?.on || job.data.testRun || job.data.noBatch || job.data.postNow) return false;
   // A step the owner just retried or answered runs at normal speed, so he sees straight away whether it's fixed.
   if (job.data.fastStage && job.data.fastStage === (job.stage || mod0(job))) return false;
   const cfg = loadPipelineConfig();
@@ -86,6 +136,42 @@ export function batchReady(job) {
   if (!h.at || dayIn(tz, new Date(h.at)) !== today) return false;
   return Boolean(h.checks?.find((c) => c.name === `${ch.name}: today's video`)?.ok);
 }
+
+// Auto clean (the owner 2026-11-20): a live-stream piece (LIVE_ name, livewatch.js) isn't needed once its clips are cut
+// (each clip job has its own copy), and each is about 300 MB. Only live pieces: a channel or any other video someone
+// recorded keeps its original. Returns the bytes freed.
+export function dropLivePiece(job) {
+  if (!LIVE_NAME.test(job.sourceName || "") || !job.data?.splitInto) return 0;
+  let freed = 0;
+  for (const f of ["source.mp4", "scan-audio.mp3", "scan"]) {
+    const p = path.join(jobDir(job.id), f);
+    try { const s = fs.statSync(p); freed += s.isDirectory() ? 0 : s.size; fs.rmSync(p, { recursive: true, force: true }); } catch {}
+  }
+  if (freed) logJob(job, `Auto clean: deleted the full recording (${Math.round(freed / 1e6)} MB); the clips keep their own copies`);
+  return freed;
+}
+
+// Network drop (2026-11-23: a moment's Ethernet flap failed several jobs with "fetch failed"). The calls themselves
+// already try again for about half a minute (fetch-retry.js); if a step still fails with a network error, the job goes
+// back in line once, a minute later, instead of failing. A second network failure at the same step fails as usual
+// (and clears the mark, so a manual Retry gets its own automatic one). Never for upload, posting or tracker steps
+// (a retry there could post or log twice).
+export const NET_RETRY_MS = 60000;
+const NO_NET_RETRY = /upload|post|publish/i;
+export function netRequeue(job, stage, err, now = Date.now()) {
+  if (!isNetworkError(err) || NO_NET_RETRY.test(stage)) return false;
+  if (job.data.netRetry?.stage === stage) {
+    delete job.data.netRetry;
+    return false;
+  }
+  job.status = "queued";
+  job.error = null;
+  job.data.netRetry = { stage, at: new Date(now + NET_RETRY_MS).toISOString() };
+  logJob(job, `Network dropped at ${stage} (${netCode(err)}); trying this step again in ${NET_RETRY_MS / 1000} s`);
+  return true;
+}
+// A job put back after a network drop waits its minute; other queued jobs go first meanwhile.
+export const netWaiting = (j, now = Date.now()) => Date.parse(j.data?.netRetry?.at || 0) > now;
 
 async function runJob(job) {
   // The tick's list may be minutes old by now: a button pressed meanwhile (Skip, It's in Studio) wins (stress test
@@ -134,7 +220,9 @@ async function runJob(job) {
         job.status = "split";
         job.stage = "done";
         job.stageStartedAt = null;
-        logJob(job, `Cut into ${job.data.splitInto.length} videos, one per ${channels[job.channel]?.splitUnit || "clip"}`);
+        if (job.data.pooled !== undefined) logJob(job, `Live piece done: ${job.data.pooled} clip(s) went to the hour's pool`);
+        else logJob(job, `Cut into ${job.data.splitInto.length} videos, one per ${channels[job.channel]?.splitUnit || "clip"}`);
+        dropLivePiece(job);
         log.end({ outcome: "split", jobs: job.data.splitInto.length });
         saveJob(job);
         return;
@@ -147,6 +235,14 @@ async function runJob(job) {
         // Waiting on an earlier video carries on by itself, so it doesn't buzz the phone.
         if (!job.data.waitEarlier) alertJob(job, "held");
         log.end({ outcome: "held", stage, held: err.message });
+      } else if (err instanceof SkipJob) {
+        // a stage decided this one shouldn't go on (the Neon check on live clips); Unskip still puts it back in line
+        job.status = "skipped";
+        job.skipReason = err.message;
+        logJob(job, `Skipped at ${stage}: ${err.message}`);
+        log.end({ outcome: "skipped", stage, reason: err.message });
+      } else if (netRequeue(job, stage, err)) {
+        log.end({ outcome: "requeued", stage, error: err.message });
       } else {
         job.status = "failed";
         job.error = { stage, message: err.message };
@@ -160,6 +256,7 @@ async function runJob(job) {
     // How long each step took, so the dashboard can estimate time left on later jobs.
     job.data.stageTimes = { ...job.data.stageTimes, [stage]: Date.now() - Date.parse(job.stageStartedAt) };
     if (job.data.fastStage === stage) delete job.data.fastStage;
+    if (job.data.netRetry?.stage === stage) delete job.data.netRetry;
   }
   job.stageStartedAt = null;
   job.stage = "done";
@@ -177,11 +274,14 @@ async function afterLive(job) {
   if (!(job.status === "scheduled" || (job.status === "published" && job.data.pinPending))) return;
   const mark = snapshot(job);
   const cfg = loadPipelineConfig();
-  if (job.data.pinPending) {
+  if (job.data.pinPending && !(Date.parse(job.data.pinRetryAt || 0) > Date.now())) {
+    let pinOk = false;
     try {
+      if (!job.data.meta_out?.pinned_comment) throw new Error("This video has no pinned comment written.");
       await pinComment({ videoId: job.data.videoId, text: job.data.meta_out.pinned_comment, channel: cfg.channels[job.channel], shotsDir: jobDir(job.id) });
       logJob(job, "Pinned the comment");
       job.data.pinned = true;
+      pinOk = true;
       job.flags = job.flags.filter((f) => !f.startsWith("Pinning the comment failed"));
       logEvent("pin comment", { trigger: "worker", job: job.id, channel: job.channel, videoId: job.data.videoId });
     } catch (err) {
@@ -189,7 +289,22 @@ async function afterLive(job) {
       logJob(job, `Pin failed: ${err.message}`);
       logEvent("pin comment", { trigger: "worker", job: job.id, channel: job.channel, videoId: job.data.videoId, error: err.message });
     }
-    job.data.pinPending = false;
+    if (pinOk) {
+      job.data.pinPending = false;
+      delete job.data.pinTries;
+      delete job.data.pinRetryAt;
+    } else {
+      // A slow page shouldn't cost the pin for good: three tries, 2 then 4 minutes apart; "Pin again" still works after.
+      const tries = (job.data.pinTries || 0) + 1;
+      if (tries >= 3) {
+        job.data.pinPending = false;
+        delete job.data.pinTries;
+        delete job.data.pinRetryAt;
+      } else {
+        job.data.pinTries = tries;
+        job.data.pinRetryAt = new Date(Date.now() + 2 ** tries * 6e4).toISOString();
+      }
+    }
   }
   if (job.status === "scheduled") {
     try {
@@ -210,7 +325,7 @@ async function afterLive(job) {
       }
     }
   }
-  mergeSave(job, mark, ["pinned", "pinPending", "afterLiveTries", "afterLiveRetryAt", "afterLiveGaveUp", "packId", "tracker", "log"], ["status", "error"]);
+  mergeSave(job, mark, ["pinned", "pinPending", "pinTries", "pinRetryAt", "afterLiveTries", "afterLiveRetryAt", "afterLiveGaveUp", "packId", "tracker", "log"], ["status", "error"]);
 }
 
 // TikTok (the owner chose 2026-10-18: automatic, following Go live). A private (test mode) YouTube upload goes to
@@ -244,9 +359,35 @@ const tiktokDue = (j) =>
     (j.data.publishAt && Date.parse(j.data.publishAt) + 120000 < Date.now())) &&
   !(j.data.tiktok.retryAt && Date.parse(j.data.tiktok.retryAt) > Date.now());
 
+// Daily ceiling (the owner 2026-11-21, "Ok cap"): TikTok caps an account at about 15 posts in 24 hours and blocks past it, so
+// a channel posts at most tiktok.dailyCap (default 12) in any 24 hours. Counts posts that went out (posted[].at) and ones
+// being posted now. Pure: jobs and now are passed in.
+export function tiktokDailyCount(channel, jobs, now = Date.now()) {
+  let n = 0;
+  for (const j of jobs) {
+    if (j.channel !== channel) continue;
+    const tt = j.data?.tiktok;
+    if (!tt) continue;
+    n += (tt.posted || []).filter((p) => p.privacy === "public" && now - Date.parse(p.at || 0) < 864e5).length;
+    if (tt.status === "posting" && !(tt.posted || []).length) n++;
+  }
+  return n;
+}
+export const tiktokCapOf = (channel) => { const c = Number(channelCfg(channel)?.tiktok?.dailyCap ?? 12); return Number.isFinite(c) && c > 0 ? Math.floor(c) : 0; };
+
 export async function runTikTok(job) {
   job = loadJob(job.id);
   if (!tiktokDue(job)) return;
+  // over the daily cap: wait and look again in half an hour (a private "Only you" test post doesn't count)
+  if (job.data.tiktok.privacy !== "private") {
+    const cap = tiktokCapOf(job.channel);
+    if (cap && tiktokDailyCount(job.channel, listJobs().filter((x) => x.id !== job.id)) >= cap) {
+      job.data.tiktok = { ...job.data.tiktok, retryAt: new Date(Date.now() + 30 * 60000).toISOString(), capWhy: `daily cap of ${cap} reached` };
+      logJob(job, `TikTok: the daily cap of ${cap} posts in 24 hours is reached, so this clip waits (it goes when the oldest post is over a day old).`);
+      saveJob(job);
+      return;
+    }
+  }
   // Gambling hold: a held clip goes nowhere near the uploader. the owner can release one with "Post to TikTok anyway" (retryTikTok).
   if (!job.data.tiktok.holdReleased) {
     const h = tiktokHoldFor(job);
@@ -407,16 +548,45 @@ async function runPublish(job) {
   }
 }
 
+// Running a job (render, batch AI, upload) can take 10+ minutes. It has its own lock, so the quick, time-sensitive
+// steps in tick() (pin after going live, make public, TikTok) don't wait behind it. Browser use is still one at a
+// time (exclusive() in studio/browser.js), and jobs still run one at a time.
+let jobRunning = false;
+function kickJobs() {
+  if (jobRunning) return;
+  jobRunning = true;
+  runNextJob()
+    .catch((err) => console.error("Pipeline job run failed:", err))
+    .finally(() => {
+      jobRunning = false;
+    });
+}
+
+async function runNextJob() {
+  // Standby copy: only test jobs run; nothing goes to YouTube or TikTok.
+  if (standbyState().standby) {
+    const test = !pauseState().paused && listJobs().reverse().find((j) => j.status === "queued" && j.data.testRun && !netWaiting(j));
+    if (test) await runJob(test);
+    return;
+  }
+  // A channel video waiting for an earlier one goes back in line once that one has its number.
+  const nowJobs = listJobs().reverse();
+  for (const j of nowJobs.filter((j) => j.status === "held" && j.data.waitEarlier)) {
+    if (channels[j.channel]?.pendingEarlier?.(j, nowJobs).length) continue;
+    requeue(j, "Carrying on: the earlier videos have their numbers now", { fast: false });
+  }
+  const next = !pauseState().paused && listJobs().reverse().find((j) => j.status === "queued" && !netWaiting(j));
+  if (next) await runJob(next);
+}
+
 async function tick() {
   if (busy) return;
   busy = true;
   try {
-    scanInboxes();
+    // (The inboxes are read by their own timer in startWorker, so a half-copied file isn't judged by two timers.)
     const jobs = listJobs().reverse(); // oldest first
-    // Standby copy: only test jobs run; nothing goes to YouTube or TikTok.
     if (standbyState().standby) {
-      const test = !pauseState().paused && jobs.find((j) => j.status === "queued" && j.data.testRun);
-      if (test) await runJob(test);
+      kickJobs();
       return;
     }
     // Skips jobs backing off after a failed update, so one stuck job can't hold up the rest (code review 2026-10-22).
@@ -426,21 +596,15 @@ async function tick() {
         j.data.publishAt &&
         Date.parse(j.data.publishAt) + 120000 < Date.now() &&
         !j.data.afterLiveGaveUp &&
-        !(Date.parse(j.data.afterLiveRetryAt || 0) > Date.now()),
+        !(Date.parse(j.data.afterLiveRetryAt || 0) > Date.now()) &&
+        !(j.status === "published" && Date.parse(j.data.pinRetryAt || 0) > Date.now()),
     );
     if (live) await afterLive(live);
     const pub = jobs.find((j) => j.status === "publishing");
     if (pub) await runPublish(pub);
     const tt = jobs.find(tiktokDue) || catchUpNext(jobs);
     if (tt) await runTikTok(tt);
-    // A channel video waiting for an earlier one goes back in line once that one has its number.
-    const nowJobs = listJobs().reverse();
-    for (const j of nowJobs.filter((j) => j.status === "held" && j.data.waitEarlier)) {
-      if (channels[j.channel]?.pendingEarlier?.(j, nowJobs).length) continue;
-      requeue(j, "Carrying on: the earlier videos have their numbers now", { fast: false });
-    }
-    const next = !pauseState().paused && nowJobs.find((j) => j.status === "queued");
-    if (next) await runJob(next);
+    kickJobs();
   } catch (err) {
     console.error("Pipeline tick failed:", err);
   } finally {
@@ -508,6 +672,7 @@ export function startWorker() {
 
 // Puts a job back in line: clears its question and error, optionally moves it to a stage (null allowed), and by
 // default lets the next run skip the review stop it just passed (fastStage). Logs why when given.
+/** @param {any} job @param {string} why @param {{ stage?: string, fast?: boolean }} [opts] */
 function requeue(job, why, { stage, fast = true } = {}) {
   if (stage !== undefined) job.stage = stage;
   if (fast) job.data.fastStage = job.stage;
@@ -560,7 +725,7 @@ export function restartJob(id) {
   if (job.data.videoId && !job.data.testRun) throw new Error("This one is already on YouTube, so starting over would upload it twice. Use Retry to finish the remaining steps.");
   const source = job.data.originalSource ?? job.data.source;
   const dir = jobDir(job.id);
-  for (const f of fs.readdirSync(dir)) if (f !== "job.json" && path.join(dir, f) !== source) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  for (const f of fs.readdirSync(dir)) if (f !== "job.json" && !sameFile(path.join(dir, f), source)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
   // A channel job keeps its episode number to take back (2026-10-23), so starting over doesn't shuffle the rest.
   const keep = Number.isInteger(job.data.episode) ? job.data.episode : job.data.keepEpisode;
   job.data = {
@@ -673,8 +838,11 @@ export async function markUploaded(id, link, publishAt) {
   const mod = channels[job.channel];
   const cfg = loadPipelineConfig();
   recordUpload(job, { videoId, visibility, publishAt: at });
-  job.stage = mod.stages[mod.stages.indexOf("upload") + 1] || "done";
-  job.status = job.stage === "done" ? "scheduled" : "queued";
+  const upIdx = mod.stages.indexOf("upload");
+  if (upIdx === -1) throw new Error(`The ${job.channel} channel has no upload step, so this can't be marked as in Studio.`);
+  job.stage = mod.stages[upIdx + 1] || "done";
+  // On YouTube as private stays private (so "Make public" works); a scheduled or public one waits for its after-live update.
+  job.status = job.stage === "done" ? (statusForVisibility(visibility) === "private" ? "private" : "scheduled") : "queued";
   logJob(job, `Marked as in Studio by ${OWNER()}: ${videoId} (${visibility}${at ? `, ${studioLabels(pipelineTz(cfg), new Date(at)).pretty}` : ""})`);
   saveJob(job);
   return job;
@@ -697,11 +865,18 @@ export function clearSkipped() {
   const archive = resolvePath("data/jobs-archive");
   fs.mkdirSync(archive, { recursive: true });
   const moved = [];
+  const failed = [];
   for (const j of listJobs().filter((x) => x.status === "skipped")) {
-    fs.renameSync(jobDir(j.id), path.join(archive, j.id));
-    moved.push(j.id);
+    try {
+      let dest = path.join(archive, j.id);
+      if (fs.existsSync(dest)) dest = `${dest}-${Date.now()}`; // never on top of an older copy
+      moveDir(jobDir(j.id), dest);
+      moved.push(j.id);
+    } catch (err) {
+      failed.push(`${j.id}: ${err.message}`); // one stuck folder doesn't stop the rest
+    }
   }
-  return { cleared: moved.length, archive };
+  return { cleared: moved.length, archive, ...(failed.length ? { failed } : {}) };
 }
 
 // Puts a skipped job back in line from the step it stopped at, fetching it back from data/jobs-archive if
@@ -709,7 +884,7 @@ export function clearSkipped() {
 export function unskipJob(id, why = `${OWNER()} asked to try it again`) {
   if (!JOB_ID.test(String(id))) throw new Error("Unknown job.");
   const archived = path.join(resolvePath("data/jobs-archive"), id);
-  if (!fs.existsSync(jobDir(id)) && fs.existsSync(archived)) fs.renameSync(archived, jobDir(id));
+  if (!fs.existsSync(jobDir(id)) && fs.existsSync(archived)) moveDir(archived, jobDir(id));
   const job = loadJob(id);
   if (job.status !== "skipped") throw new Error("Only skipped jobs can go back in line.");
   // A channel number freed by the skip may belong to a later video now, so it gets a fresh one at render

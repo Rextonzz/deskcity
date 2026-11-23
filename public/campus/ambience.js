@@ -77,7 +77,7 @@ async function loadWeather() {
     const c = (await r.json()).current || {};
     const w = Number(c.weather_code);
     const kind = [45, 48].includes(w) ? "fog" : (w >= 71 && w <= 77) || w === 85 || w === 86 ? "snow" : (w >= 51 && w <= 67) || (w >= 80 && w <= 82) || w >= 95 ? "rain" : w >= 2 ? "cloudy" : "clear";
-    weather = { kind, live: true, temp: c.temperature_2m };
+    weather = { kind, live: true, temp: c.temperature_2m, heavy: [65, 67, 75, 82, 86, 95, 96, 99].includes(w) }; // heavy: the weather routines (citylife2.js) keep everyone in
   } catch {}
 }
 loadWeather();

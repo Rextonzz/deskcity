@@ -20,6 +20,8 @@ export async function hub({ rooms, desks, root: given, seed } = {}) {
   process.env.HUB_TEST_ROOT = root;
   process.env.PIPELINE_FAKE_CLAUDE = path.join(root, "fake");
   process.env.HUB_AUTORUN_PER_DAY ??= "none"; // existing hand-off tests keep running; the auto-run limit has its own test
+  process.env.HUB_APPROVE_API ??= "none"; // the approval line (src/hub/approval.js) has its own test (approve-over.test.mjs); the others run as before
+  process.env.HUB_APPROVE_SUB ??= "none";
   process.env.HUB_HELPERS ??= "on"; // the AI helpers are off on a new hub; the tests that need them say so here (src/hub/helpers.js), so no test depends on this PC's settings files
   process.env.HUB_HELPERS_PER_DAY ??= "none";
   await import(app("src/config.js")); // loads .env (if any) first, so the keys can be taken out after

@@ -45,6 +45,30 @@ export const html = `<section class="bg-white rounded-xl border border-slate-200
   <p id="helpersMsg" class="text-sm text-slate-500" aria-live="polite"></p>
 </section>
 
+<section class="bg-white rounded-xl border border-slate-200 p-4 space-y-3" id="approveCard">
+  <h2 class="font-semibold">Approval line</h2>
+  <p class="text-sm text-slate-500">A new job the hub runs on an API, or a Claude Code session the hub starts on your subscription (counted at API prices), that is estimated over its line waits in Waiting for you until you approve it. Empty = no line. Your own Claude Code windows can't be held. Raising a line or clearing it needs your password.</p>
+  <div class="flex items-end gap-3 flex-wrap">
+    <label class="text-sm">API job over (US dollars)<input id="approveApi" type="number" min="0" step="0.05" placeholder="no line" inputmode="decimal" class="block mt-1 w-32 border border-slate-300 rounded-lg px-3 py-1.5 text-base" /></label>
+    <label class="text-sm">Session over (US dollars)<input id="approveSub" type="number" min="0" step="0.5" placeholder="no line" inputmode="decimal" class="block mt-1 w-32 border border-slate-300 rounded-lg px-3 py-1.5 text-base" /></label>
+    <button id="approveSave" class="text-sm px-3 py-1.5 rounded-lg border border-slate-300">Save lines</button>
+  </div>
+  <p id="approveMsg" class="text-sm text-slate-500" aria-live="polite"></p>
+</section>
+
+<section class="bg-white rounded-xl border border-slate-200 p-4 space-y-3" id="runLimitsCard">
+  <h2 class="font-semibold">Starting work by itself</h2>
+  <p class="text-sm text-slate-500">Auto-runs: paid jobs a worker's own output starts in a day (past that they wait for Run now). Auto-push: queued jobs for workers on this PC get their session started by the hub, like tapping Push. Monthly caps, plan shares and the approval line still apply. Loosening any of these needs your password.</p>
+  <div class="flex items-end gap-3 flex-wrap">
+    <label class="text-sm">Auto-runs a day<input id="rlRuns" type="number" min="0" step="1" placeholder="no limit" inputmode="numeric" class="block mt-1 w-28 border border-slate-300 rounded-lg px-3 py-1.5 text-base" /></label>
+    <label class="text-sm flex items-center gap-2 pb-2"><input id="rlPushOn" type="checkbox" /> Auto-push on</label>
+    <label class="text-sm">Sessions at once<input id="rlAtOnce" type="number" min="1" max="5" step="1" inputmode="numeric" class="block mt-1 w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-base" /></label>
+    <label class="text-sm">Auto-pushes a day<input id="rlPushDay" type="number" min="0" max="100" step="1" inputmode="numeric" class="block mt-1 w-28 border border-slate-300 rounded-lg px-3 py-1.5 text-base" /></label>
+    <button id="rlSave" class="text-sm px-3 py-1.5 rounded-lg border border-slate-300">Save</button>
+  </div>
+  <p id="rlMsg" class="text-sm text-slate-500" aria-live="polite"></p>
+</section>
+
 <section class="bg-white rounded-xl border border-slate-200 p-4 space-y-3" id="pipeCapCard">
   <h2 class="font-semibold">Pipeline AI budget</h2>
   <p class="text-sm text-slate-500">An optional monthly limit on the AI calls the hub makes for its own pipeline steps (lookups, scripts, ideas: anything not run by a desk or HR). When it is used up those steps stop and the job waits as held; nothing is lost. Empty = no limit.</p>
@@ -210,6 +234,7 @@ export async function mount(root, opts = {}) {
   // Is a part on? One read of the hub's settings, kept; an unreadable answer counts as on, so nothing is hidden by mistake.
   // A part that is off has no routes (they answer 404), so the page does not ask for them.
   let settingsP = null;
+  let healthTimer = null;
   const partOn = async (id) => { try { settingsP ??= fetch("/api/hub/settings").then((r) => (r.ok ? r.json() : null)); const s = await settingsP; return !Array.isArray(s?.modules) || s.modules.includes(id); } catch { return true; } };
   async function loadHealth() {
     try {
@@ -244,7 +269,8 @@ export async function mount(root, opts = {}) {
         await api("/health/clear-errors", {}).catch((err) => (b.textContent = err.message));
         loadHealth();
       }));
-      if (h.running) life.later(loadHealth, 4000);
+      clearTimeout(healthTimer);
+      if (h.running) healthTimer = life.later(loadHealth, 4000); // one poll at a time, however many buttons started a check
     } catch (err) {
       $("health").innerHTML = `<p class="text-red-700">${esc(err.noRoute ? "the app needs a restart to load the health check" : err.message)}</p>`;
     }
@@ -320,11 +346,17 @@ export async function mount(root, opts = {}) {
     if (!(await timing.confirmBox({ title: "Restart the app?", text: "It stops and starts again on the PC. The page comes back by itself in about 20 seconds.", yes: "Restart" }))) return;
     if (!(await askPassword(PW_WHY))) return;
     const before = (await api("/app").catch(() => ({}))).startedAt;
-    let res = await fetch("/api/pipeline/app/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    // A 403 means the password confirmation ran out (10 minutes): ask again once, then retry.
+    const restartPost = async (body) => {
+      let r0 = await fetch("/api/pipeline/app/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      if (r0.status === 403 && (await askPassword(PW_WHY))) r0 = await fetch("/api/pipeline/app/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      return r0;
+    };
+    let res = await restartPost("{}");
     let r = await res.json().catch(() => ({}));
     if (res.status === 409 && r.busy?.length) {
       if (!(await timing.confirmBox({ title: "Something is running", text: `${r.message} It won't carry on after the restart.`, yes: "Restart anyway", no: "Wait" }))) return;
-      res = await fetch("/api/pipeline/app/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) });
+      res = await restartPost(JSON.stringify({ force: true }));
       r = await res.json().catch(() => ({}));
     }
     if (!res.ok) return ($("appInfo").textContent = r.message || r.error || "Couldn't restart.");
@@ -373,7 +405,15 @@ export async function mount(root, opts = {}) {
     $("pauseBtn").textContent = p.paused ? "Resume pipeline" : "Pause pipeline";
     $("pauseBtn").className = `text-sm px-3 py-1.5 rounded-lg ${p.paused ? "bg-red-600 text-white" : "border border-slate-300"}`;
     $("pauseMsg").textContent = p.paused ? `Paused since ${when(p.at)}. No new job starts. Scheduled videos still go public on time.` : "Pause stops new jobs from starting (a running one finishes). Scheduled videos still go public on time.";
-    $("pauseBtn").onclick = async () => (await api("/admin/pause", { paused: !p.paused }), loadPause());
+    $("pauseBtn").onclick = async () => {
+      try {
+        await api("/admin/pause", { paused: !p.paused });
+      } catch (err) {
+        $("pauseBtn").textContent = err.message || "Couldn't change it";
+        return;
+      }
+      loadPause();
+    };
   }
   async function loadFixes() {
     if (!(await partOn("youtube"))) { $("fixes").innerHTML = '<p class="text-slate-500">Corrections are kept by the YouTube and TikTok pipeline, which is not switched on here.</p>'; return; }
@@ -385,7 +425,15 @@ export async function mount(root, opts = {}) {
   async function loadDevices() {
     const d = await api("/admin/devices").catch(() => []);
     $("devList").innerHTML = d.map((x) => `<li class="py-1.5 flex gap-3 items-center"><span class="flex-1 min-w-0">${esc(x.name)}${x.thisOne ? ' <span class="text-emerald-600">(this one)</span>' : ""}<span class="block text-xs text-slate-500">last ${esc(when(x.lastAt))} from ${esc(x.ip)} · first ${esc(when(x.firstAt))}</span></span>${x.thisOne ? "" : `<button data-forget="${esc(x.id)}" class="text-xs px-2.5 py-1 rounded-lg border border-slate-300">Forget</button>`}</li>`).join("") || '<li class="py-1.5 text-slate-500">None yet.</li>';
-    $.all("[data-forget]").forEach((b) => (b.onclick = async () => (await api("/admin/devices/forget", { id: b.dataset.forget }), loadDevices())));
+    $.all("[data-forget]").forEach((b) => (b.onclick = async () => {
+      try {
+        await api("/admin/devices/forget", { id: b.dataset.forget });
+      } catch (err) {
+        b.textContent = err.message || "Couldn't forget it";
+        return;
+      }
+      loadDevices();
+    }));
   }
   async function loadDisk() {
     const d = await api("/admin/disk").catch((err) => ({ error: err.message }));
@@ -504,6 +552,43 @@ export async function mount(root, opts = {}) {
   }
   $("helpersOn").onchange = () => saveHelpers({ on: $("helpersOn").checked });
   $("helpersSave").onclick = () => { const v = $("helpersLimit").value.trim(); saveHelpers({ perDayUsd: v === "" ? null : Number(v) }); };
+  // Approval line (src/hub/approval.js): raising a line or clearing it asks for the password.
+  async function loadApprove() {
+    const s = await api("/admin/approve-over").catch(() => null);
+    if (!s) { $("approveMsg").textContent = "Couldn't read the approval line."; return; }
+    $("approveApi").value = s.apiUsd === null ? "" : s.apiUsd;
+    $("approveSub").value = s.subUsd === null ? "" : s.subUsd;
+    $("approveApi").disabled = $("approveSub").disabled = $("approveSave").disabled = Boolean(s.demo);
+  }
+  $("approveSave").onclick = async () => {
+    const v = (id) => { const t = $(id).value.trim(); return t === "" ? null : Number(t); };
+    $("approveMsg").textContent = "";
+    try { await api("/admin/approve-over", { apiUsd: v("approveApi"), subUsd: v("approveSub") }, { password: true, why: "Raising an approval line, or clearing it, lets the hub start costlier work without asking, so it needs your dashboard password." }); $("approveMsg").textContent = "Saved."; }
+    catch (err) { $("approveMsg").textContent = err.cancelled ? "Not changed." : `Couldn't save it: ${err.message}`; }
+    loadApprove();
+  };
+  loadApprove();
+  // Starting work by itself (src/hub/runlimits.js): auto-runs a day and auto-push. Loosening asks for the password.
+  async function loadRunLimits() {
+    const s = await api("/admin/run-limits").catch(() => null);
+    if (!s) { $("rlMsg").textContent = "Couldn't read these settings."; return; }
+    $("rlRuns").value = s.autoRunPerDay === null ? "" : s.autoRunPerDay;
+    $("rlPushOn").checked = s.autoPush.on;
+    $("rlAtOnce").value = s.autoPush.atOnce;
+    $("rlPushDay").value = s.autoPush.perDay;
+    for (const id of ["rlRuns", "rlPushOn", "rlAtOnce", "rlPushDay", "rlSave"]) $(id).disabled = Boolean(s.demo);
+  }
+  $("rlSave").onclick = async () => {
+    const t = $("rlRuns").value.trim();
+    $("rlMsg").textContent = "";
+    try {
+      await api("/admin/run-limits", { autoRunPerDay: t === "" ? null : Number(t), autoPush: { on: $("rlPushOn").checked, atOnce: Number($("rlAtOnce").value), perDay: Number($("rlPushDay").value) } },
+        { password: true, why: "More auto-runs, or auto-push, lets the hub start paid work and sessions without asking you each time, so it needs your dashboard password." });
+      $("rlMsg").textContent = "Saved.";
+    } catch (err) { $("rlMsg").textContent = err.cancelled ? "Not changed." : `Couldn't save it: ${err.message}`; }
+    loadRunLimits();
+  };
+  loadRunLimits();
   // Pipeline AI budget: an optional monthly limit (src/hub/pipelinecap.js). A higher limit, or none, asks for the password.
   async function loadPipeCap() {
     const s = await api("/admin/pipeline-cap").catch(() => null);
@@ -560,7 +645,7 @@ export async function mount(root, opts = {}) {
     $.one('[data-alert="enabled"]').checked = s.enabled;
     const NAMES = { off: "Off", quiet: "Quiet", normal: "Normal", high: "High", urgent: "Urgent" };
     $("levels").innerHTML = (s.kinds || []).map((k) => `<label class="flex items-center gap-2 py-1.5"><span class="flex-1 min-w-0">${esc(k.label)}${k.level !== k.default ? "" : ' <span class="text-xs text-slate-500">(default)</span>'}</span>
-      <select data-level="${k.kind}" class="rounded border border-slate-300 px-2 py-1 text-sm">${Object.keys(NAMES).filter((l) => !(k.noOff && l === "off")).map((l) => `<option value="${l}" ${l === k.level ? "selected" : ""}>${NAMES[l]}</option>`).join("")}</select></label>`).join("");
+      <select data-level="${esc(k.kind)}" class="rounded border border-slate-300 px-2 py-1 text-sm">${Object.keys(NAMES).filter((l) => !(k.noOff && l === "off")).map((l) => `<option value="${l}" ${l === k.level ? "selected" : ""}>${NAMES[l]}</option>`).join("")}</select></label>`).join("");
     $("alertState").textContent = s.enabled ? "· on" : "· off";
     $("alertSecNote").textContent = s.securityWhenOff ? "(sign-in alerts always come through)" : "(sign-in alerts follow this switch)";
   }

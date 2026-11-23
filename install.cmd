@@ -1,6 +1,6 @@
 @echo off
 rem Deskcity installer for Windows: double-click it. Safe to run again; each step skips what is already done.
-rem   install.cmd --yes   takes the defaults and asks nothing (basic setup, no password, no shortcuts, does not start).
+rem   install.cmd --yes   takes the defaults and asks nothing (basic setup, NO password (loud warning), no shortcuts, does not start).
 rem It needs no admin rights, changes no registry settings and sends nothing anywhere (npm fetches the packages, that is all).
 rem It never reads or prints your .env file.
 setlocal EnableExtensions
@@ -38,6 +38,8 @@ goto :pkgend
 :pkgok
 echo       Packages installed. OK.
 :pkgend
+call npm run addons:install
+if errorlevel 1 echo       Some add-on packages did not install. You can retry any time with: npm run addons:install
 
 echo [3/8] Your keys file (.env)...
 if exist ".env" goto :envdone
@@ -60,12 +62,25 @@ echo       .env is already there. Skipped.
 echo [4/8] Dashboard password...
 node tools\setup.mjs --check | findstr /c:"dashboard password set" >nul
 if not errorlevel 1 goto :pwdone
-call :ask "Set a dashboard password now? (needed for spending and phone access)" N N
+rem Enter = yes when you are asked. With --yes nothing is asked and the interactive set-password is not run.
+call :ask "Set a dashboard password now? (needed for spending and phone access)" Y N
 if not "%ANS%"=="Y" goto :pwskip
 call npm run set-password
 if errorlevel 1 echo       No password was set. You can run npm run set-password any time.
 goto :pwend
 :pwskip
+if not "%YES%"=="1" goto :pwskipask
+echo.
+echo       ####################################################################
+echo       #  WARNING: NO DASHBOARD PASSWORD IS SET.                          #
+echo       #  This unattended install (--yes) skipped it. Until you run       #
+echo       #      npm run set-password                                        #
+echo       #  the hub runs WITHOUT a password: anything on this PC can        #
+echo       #  start paid work (monthly caps and hourly limits still apply).   #
+echo       ####################################################################
+echo.
+goto :pwend
+:pwskipask
 echo       Skipped. Run npm run set-password any time. Until then anything on this PC can start paid work.
 goto :pwend
 :pwdone

@@ -60,12 +60,13 @@ function world() {
 }
 
 // the stand-ins: real git, npm and node recorded, backup recorded, self-check chosen by the test
-function kit(appDir, { selfPass = true, backupOk = true, npmOk = true, fetchFn } = {}) {
+function kit(appDir, { selfPass = true, backupOk = true, npmOk = true, addonsOk = true, fetchFn } = {}) {
   const calls = [], lines = [];
-  const runner = (cmd, args, opts) => {
+  const runner = (cmd0, args, opts) => {
+    const cmd = cmd0 === process.execPath ? "node" : cmd0; // the add-on step runs this same node binary
     if (cmd === "git") { calls.push(`git ${args[0]}`); const r = spawnSync("git", args, { cwd: opts.cwd, encoding: "utf8", env: GIT_ENV }); return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" }; }
     calls.push(`${cmd} ${args.join(" ")}`);
-    return { status: cmd === "npm" && !npmOk ? 1 : 0, stdout: "", stderr: "" };
+    return { status: (cmd === "npm" && !npmOk) || (cmd === "node" && !addonsOk) ? 1 : 0, stdout: "", stderr: "" };
   };
   const o = {
     appDir, runner, out: (s) => lines.push(s), interactive: false, fetchFn,
@@ -197,6 +198,26 @@ test("a failing npm ci also puts the old commit back", async () => {
   const k = kit(w.appDir, { npmOk: false });
   assert.equal(await main(["--yes"], k.o), 1);
   assert.equal(w.head(), from);
+});
+
+const INSTALLER = { "tools/addons-install.mjs": "// add-on packages\n" };
+const ADDON_STEP = `node ${path.join("tools", "addons-install.mjs")}`;
+
+test("a version with tools/addons-install.mjs: the add-on packages are installed right after npm ci, before the self-check", async () => {
+  const w = world(); w.release("0.2.0", "second", INSTALLER);
+  const k = kit(w.appDir);
+  assert.equal(await main(["--yes"], k.o), 0);
+  assert.ok(k.calls.indexOf(ADDON_STEP) > k.calls.indexOf("npm ci --ignore-scripts"), k.calls.join(" | "));
+  assert.ok(k.calls.indexOf(ADDON_STEP) < k.calls.indexOf("SELFCHECK"));
+});
+
+test("a failing add-on install puts the old commit back, like a failing npm ci (the old version has no add-on step)", async () => {
+  const w = world(); const from = w.head(); w.release("0.2.0", "second", INSTALLER);
+  const k = kit(w.appDir, { addonsOk: false });
+  assert.equal(await main(["--yes"], k.o), 1);
+  assert.equal(w.head(), from);
+  assert.match(k.text(), /Add-on packages failed/);
+  assert.equal(k.calls.filter((c) => c === ADDON_STEP).length, 1, "the old tree has no installer, so the put-back doesn't run it");
 });
 
 test("rollback after a git update returns to the old commit, data untouched; a second rollback has nothing to do", async () => {

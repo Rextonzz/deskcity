@@ -263,12 +263,15 @@ function stepRex(dt, t) {
   // The CEO chairs every stand-up: off to the head of the table when it starts, home to his office after.
   if (sp.meeting && meetingLive() && rex.spot !== "meeting") { rex.spot = "meeting"; [rex.tx, rex.ty] = sp.meeting; }
   else if (rex.spot === "meeting" && !meetingLive()) { rex.spot = "office"; [rex.tx, rex.ty] = sp.office; }
+  // Weather routines (citylife2.js): in rain or snow he naps indoors, in his office; only his spot changes
+  const indoors = typeof cityLife2 !== "undefined" && cityLife2.petIndoors();
+  if (indoors && rex.spot !== "office" && rex.spot !== "meeting") { rex.spot = "office"; [rex.tx, rex.ty] = sp.office; }
   const dist = Math.hypot(rex.tx - rex.x, rex.ty - rex.y);
   if (dist > 0.04) { const k = Math.min(1, (0.45 * dt) / dist); rex.x += (rex.tx - rex.x) * k; rex.y += (rex.ty - rex.y) * k; rex.mode = "walk"; return; }
   if (rex.mode === "walk") { rex.mode = rex.spot === "office" ? "nap" : Math.random() < 0.5 ? "nap" : "sit"; rex.until = t + (rex.spot === "office" ? 60000 : 25000) * (0.6 + Math.random() * 0.8); }
   if (t < rex.until || rex.spot === "meeting") return;
   // Mostly back to his office; sometimes a walkabout.
-  const keys = Object.keys(sp).filter((k) => k !== rex.spot && k !== "meeting");
+  const keys = indoors ? [] : Object.keys(sp).filter((k) => k !== rex.spot && k !== "meeting");
   rex.spot = rex.spot !== "office" || !keys.length ? "office" : pick(keys);
   [rex.tx, rex.ty] = sp[rex.spot];
 }
@@ -450,13 +453,19 @@ function syncWalkers() {
       if (!walkers.has(d.id)) { const home = doorOf(r, 0.9); walkers.set(d.id, { d, home, x: home[0], y: home[1], tx: home[0], ty: home[1], wait: 0, thought: null }); }
       else walkers.get(d.id).d = d;
     }
-    for (const d of idle.slice(0, 2)) {
+    for (const d of idle.slice(0, typeof cityLife2 !== "undefined" ? cityLife2.walkerCap() : 2)) { // (weather routines, citylife2.js: fewer out in snow, none in heavy rain or snow)
       keep.add(d.id);
       if (!walkers.has(d.id)) { const home = doorOf(r, 0.9); walkers.set(d.id, { d, home, x: home[0] + (Math.random() - 0.5), y: home[1], tx: home[0], ty: home[1], wait: Math.random() * 5, thought: null }); }
       else walkers.get(d.id).d = d;
     }
   }
-  for (const id of [...walkers.keys()]) if (!keep.has(id)) walkers.delete(id);
+  // Morning commute (citylife.js): in the half hour before 8:00 the day's workers walk in from the bus stop and their homes
+  if (typeof cityLife !== "undefined") for (const c of cityLife.commuters()) {
+    const home = doorOf(c.room, 0.9), w = { d: c.d, home, x: c.from[0], y: c.from[1], tx: c.from[0], ty: c.from[1], wait: 0, thought: { text: pick(["morning!", "coffee first ☕", "here we go"]), until: performance.now() + 3200 }, commute: true };
+    w.path = route(c.from, home); [w.tx, w.ty] = w.path.shift() || home;
+    walkers.set(c.d.id, w);
+  }
+  for (const id of [...walkers.keys()]) if (!keep.has(id) && !walkers.get(id).commute) walkers.delete(id);
 }
 // Pathing (the owner, 2026-11-09): walkers keep to the streets instead of cutting through buildings. A trip goes along
 // the street they're on to the nearest north-south street, down it, then along the destination's street.
@@ -558,6 +567,7 @@ function breakSeatFor(w) {
 function stepWalkers(dt, t) {
   const sp = spots();
   for (const w of walkers.values()) {
+    if (w.commute) { if (cityLife.stepCommuter(w, dt)) walkers.delete(w.d.id); continue; } // walking in to work (citylife.js)
     if (!w.thought && (w.metAt || 0) < t - 30000) {
       const o = [...walkers.values()].find((x) => x !== w && !x.thought && (x.metAt || 0) < t - 30000 && Math.hypot(x.x - w.x, x.y - w.y) < 0.9);
       if (o) {
@@ -673,7 +683,9 @@ function drawWalker(w, t, inGarden = false) {
   // a pet comes along for the walk
   const pet = martOf(w.d.id, "pets")[0];
   if (pet && pet !== "goldfish") emoji(px + 10 * s, py - (1 + (moving ? Math.abs(Math.sin(t / 90)) * 2 : 0)) * s, 9 * s, data.perks[pet].icon);
-  if (w.thought && t < w.thought.until && cam.z > 0.4) thoughtBubble(px, py - (38 + bob) * s, w.thought.text, false);
+  const brolly = typeof cityLife2 !== "undefined" && cityLife2.umbrellaFor(w); // rain: an umbrella (citylife2.js)
+  if (brolly) cityLife2.draw2dBrella(px + 3 * s, py - (37 + bob) * s, s, w);
+  if (w.thought && t < w.thought.until && cam.z > 0.4) thoughtBubble(px, py - ((brolly ? 46 : 38) + bob) * s, w.thought.text, false);
   else w.thought = null;
   // who's this? a name tag (and title and building when zoomed in) so you can tell them apart outside
   if (cam.z > 0.45) {

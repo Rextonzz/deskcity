@@ -125,7 +125,7 @@
     .ctl-chip { flex: none; font-size: 12px; padding: 4px 10px; }
     .ctl-chip.on { background: #f3d9a4; color: #1b1f27; }
     .ctl-chip b { margin-left: 3px; font-weight: 700; }
-    .ctl-card { position: absolute; top: 92px; width: min(300px, calc(50vw - 18px)); max-height: calc(100% - 170px); display: flex; flex-direction: column; background: rgba(15, 18, 24, 0.88); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; color: #e9e4d8; font-size: 12.5px; backdrop-filter: blur(6px); z-index: 2; }
+    .ctl-card { position: absolute; top: 92px; width: min(300px, calc(50vw - 18px)); max-height: calc(100% - 170px); min-height: 44px; display: flex; flex-direction: column; background: rgba(15, 18, 24, 0.88); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; color: #e9e4d8; font-size: 12.5px; backdrop-filter: blur(6px); z-index: 2; }
     .ctl-left { left: 12px; } .ctl-right { right: 12px; }
     .ctl-card.alert { border-color: rgba(224, 93, 141, 0.7); }
     .ctl-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; font-weight: 600; }
@@ -137,6 +137,8 @@
     .ctl-meta .late { color: #f0a0b8; }
     .ctl-text { margin-top: 2px; } .ctl-sub { color: #a8a294; font-size: 11.5px; margin-top: 2px; }
     .ctl-btns { display: flex; gap: 6px; margin-top: 6px; }
+    .ctl-btns.ctl-opts { flex-wrap: wrap; }
+    .ctl-opts .ctl-btn { max-width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ctl-btn { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: #e9e4d8; background: rgba(255, 255, 255, 0.04); }
     .ctl-btn.yes { background: #c2477a; border-color: #c2477a; color: #fff; }
     .ctl-askbox { display: flex; gap: 6px; margin-top: 6px; } .ctl-askbox input { flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 3px 8px; color: inherit; }
@@ -376,6 +378,8 @@
       <span class="pill" id="hSub" title="Subscription use priced as if on the API">Sub –</span>
       <button class="pill" id="hHr" title="Staff requests waiting">HR inbox –</button>
       <button class="pill" id="hOrg" title="Who reports to whom; tap anyone to realign them">Org chart</button>
+      <button class="pill" id="hFund" title="The city fund: the store tax, the board's spend proposals and your votes">City fund</button>
+      <button class="pill" id="hCasino" title="The campus casino: the workers' slot sessions with play credits, and how the game is paying">Casino</button>
       <button class="pill" id="hAdd" title="Add a project: a building, a lead and (for work on this PC) its folder">＋ Project</button>
       <button class="pill" id="hNew" style="display:none;background:#f3d9a4;color:#1b1f27" title="What changed since you last looked"></button>
       <button class="pill" id="hWx" style="display:none" title="Live weather. Tap to switch the light: Auto (the real sun), always day, always night"></button>

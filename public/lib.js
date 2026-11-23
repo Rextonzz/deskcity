@@ -25,7 +25,8 @@ export async function api(path, body, opts = {}) {
 async function call(path, body, opts) {
   let res;
   try {
-    res = await fetch("/api/pipeline" + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    res = await fetch((/^\/agents(?![\w-])/.test(path) ? "/api" : "/api/pipeline") + path, // the agents API lives at /api/agents (old /api/pipeline/agents is a deprecated alias)
+       body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   } catch {
     // The browser's own "Failed to fetch": the phone lost its link to the PC (screen off, Tailscale reconnecting).
     const err = new Error("Couldn't reach the PC just now (the connection dropped). Trying again…");
@@ -165,4 +166,16 @@ export function confirmBox({ title, text, yes = "OK", no = "Not now", input }) {
     document.body.appendChild(box);
     (field || yesBtn).focus();
   });
+}
+
+// The approval line (Admin > Approval line): for a confirm box, one sentence saying what this job or session is estimated
+// to cost when that is over the owner's line, else "". `path` is /agents/job/<id>/estimate or /agents/session-estimate?...
+// Never throws: with no answer the box just says nothing extra.
+export async function approvalNote(path) {
+  try {
+    const e = await api(path);
+    if (!e || !e.over) return "";
+    const usd = (v) => `$${v < 1 ? Number(v).toFixed(3).replace(/0$/, "") : Number(v).toFixed(2)}`;
+    return `This is over your approval line: ${e.priceKnown ? `estimated at about ${usd(e.usd)}, line ${usd(e.line)}` : `no price is known for it, line ${usd(e.line)}`}. ${e.basis || ""} Pressing the button approves it.`;
+  } catch { return ""; }
 }

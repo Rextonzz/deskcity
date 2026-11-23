@@ -1,3 +1,4 @@
+// @ts-check
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -12,8 +13,19 @@ export { dayIn, hourIn } from "./fmt.js";
 
 const CONFIG_FILE = path.join(appConfig.rootDir, "pipeline.config.json");
 
+// The file's text is kept until its size or modified time changes (an edit by hand, by another session or by
+// savePipelineConfig), so the many callers that ask for the config don't each read the disk. Every call still parses its
+// own copy, so a caller that changes what it got can't change what the next caller sees.
+let configCache = null; // { mtimeMs, size, text }
 export function loadPipelineConfig() {
-  const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+  const st = fs.statSync(CONFIG_FILE);
+  let text;
+  if (configCache && configCache.mtimeMs === st.mtimeMs && configCache.size === st.size) text = configCache.text;
+  else {
+    text = fs.readFileSync(CONFIG_FILE, "utf8");
+    configCache = { mtimeMs: st.mtimeMs, size: st.size, text };
+  }
+  const cfg = JSON.parse(text);
   // Channels as a map with no prototype (code review 2026-10-22): a channel id like "__proto__" from a request then
   // finds nothing, instead of reaching Object.prototype and changing every object in the app.
   if (cfg.channels) cfg.channels = Object.assign(Object.create(null), cfg.channels);
@@ -21,6 +33,7 @@ export function loadPipelineConfig() {
 }
 
 export function savePipelineConfig(cfg) {
+  configCache = null;
   writeFileAtomic(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n");
 }
 
@@ -31,6 +44,7 @@ export const pipelineTz = (cfg = loadPipelineConfig()) => cfg.timezone || DEFAUL
 
 // Once-a-day checks: true from hour:minute on in `tz` (on `weekday`, "Sun".."Sat", when given), unless `last` (a time)
 // falls on today's date in `tz`. Callers keep their own extra rules.
+/** @param {{ hour: number, minute?: number, weekday?: string, last?: any, tz?: string, now?: Date }} o */
 export function dueAt({ hour, minute = 0, weekday, last = null, tz = pipelineTz(), now = new Date() }) {
   const p = partsIn(tz, now);
   if (weekday && p.weekday !== weekday) return false;
@@ -137,6 +151,7 @@ export function missingContextFiles(cfg = loadPipelineConfig()) {
   return Object.values(cfg.channels || {}).map((ch) => ch.contextFile).filter((f) => f && !fs.existsSync(resolvePath(f)));
 }
 
+/** @param {string} cmd @param {string[]} args @param {{ cwd?: string, input?: string | Buffer }} [opts] */
 export function run(cmd, args, { cwd, input } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd, windowsHide: true });
@@ -168,6 +183,10 @@ export class Hold extends Error {
   }
 }
 
+// Thrown by a stage when the job should not go on at all (2026-11-20: the Neon check on live clips). The worker marks the
+// job skipped with the reason; Unskip puts it back in line, as for any skip.
+export class SkipJob extends Error {}
+
 export const money = (n) => `${n < 0 ? "-" : "+"}$${Math.abs(n).toFixed(2)}`;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -177,7 +196,11 @@ export const isId = (s) => typeof s === "string" && /^[a-f0-9]{10}$/.test(s);
 
 // Repeating background job. Runs fn (sync or async) inside a catch, logs a failure as `<label>: <msg>` (quiet: silent),
 // and clears any earlier timer with the same label. firstMs adds one early run; unref keeps the timer from holding the app open.
+// The switch that stops the hub's background jobs and timers (the worker, live clipping, add-on timers). DESKCITY_JOBS_DISABLED=1;
+// the older name PIPELINE_DISABLED still works. The nightly backup is not one of them: it always runs.
+export const jobsDisabled = () => (process.env.DESKCITY_JOBS_DISABLED ?? process.env.PIPELINE_DISABLED) === "1";
 const everyTimers = new Map();
+/** @param {string} label @param {Function} fn @param {number} ms @param {{ firstMs?: number, quiet?: boolean, unref?: boolean }} [opts] */
 export function every(label, fn, ms, { firstMs, quiet, unref } = {}) {
   const old = everyTimers.get(label);
   if (old) { clearTimeout(old.first); clearInterval(old.tick); }

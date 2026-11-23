@@ -6,7 +6,7 @@ Every AI that works on one of your projects reports into the hub, so the Agents 
 |---|---|---|
 | **Claude Code** | Automatically, through the hook: session start, tools used (file names only), tokens per turn. | `node <hub>/tools/agent-hook-check.mjs --fix --folder <project folder>`, then start a new session there. |
 | **OpenAI Codex CLI, GitHub Copilot CLI, Antigravity, Gemini CLI, Cursor, other agents that can run commands** | The agent logs each finished task itself. | Put the "Hub rule for agents" block below in the tool's rules or instructions file for that project (for example `AGENTS.md` or `GEMINI.md` in the project folder). |
-| **Workers the hub runs** (Claude, Gemini, OpenAI, Grok, DeepSeek, Muse, local) | Automatically: every job and its cost. | Nothing: give the desk "The hub runs this desk" and a cap. |
+| **Workers the hub runs** (cloud or local models) | Automatically: every job and its cost. | Nothing: give the desk "The hub runs this desk" and a cap. |
 | **Scripts and scheduled jobs** | One line when a job finishes. | `node <hub>/tools/agent-log.mjs event --desk <desk> --room <room> --summary "<one line>" [--provider ...] [--model ...]` |
 | **Chat apps that can't run commands** (claude.ai, ChatGPT, Gemini, Grok on the web or phone) | A last line in their reply that you paste into the Agents page ("Paste a Hub log"). | Ask them to end every report with `Hub log: <desk> (<model>) <what they did>`. |
 

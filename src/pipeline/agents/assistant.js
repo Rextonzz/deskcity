@@ -10,6 +10,7 @@ import { partsWith, roomLink } from "../../hub/extras.js";
 import { ownerName as OWNER, ownerId, hubSettings } from "../../hub/settings.js";
 import { helperMay, helperWhy } from "../../hub/helpers.js";
 import { DIR, OUTBOX, deskRoute, REQUESTS, addRequest, appendJsonl, clip, findOpen, monthSpend, recordEvent, requests, roster, saveDesk, sendText, slug } from "../agents.js";
+import { askedCommands, commandRefused } from "../grants.js";
 
 // ---------- the shared assistant (the owner 2026-11-11) ----------
 // "Can we add them as a personal assistant for all leads and HR": one hub-run desk in the HR office that any lead (and
@@ -263,6 +264,9 @@ export function decideSpends(id, body = {}) {
   try { q = findOpen(id); } catch { return false; }
   if (q.pr || (roomLink(q.room) && q.from !== ownerId())) return true;
   if (body.decision !== "approved") return false;
+  if (q.grant) return true; // approving an access ask gives access, like the Access button: password first
+  // an ask that names a command ("Let X run 'git rebase --abort'?") gives that command when approved (allowAskedCommands): password first
+  if (q.kind === "ask" && askedCommands(q.role).some((c) => !commandRefused(c))) return true;
   if (q.kind === "staff") {
     if (q.runner === "hub" || Number(q.budgetAsk) > 0 || Number(q.hr?.capUsdMonth) > 0 || isCompat(q.suggested?.provider)) return true;
     // HR's "reuse" verdict hires nobody (no brief is written); any other approval writes one

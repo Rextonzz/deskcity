@@ -104,7 +104,9 @@ export function grantCatalogue() {
       about: "Read pull requests and their checks, mark a draft ready, and re-run failed CI (gh).",
       risk: "It can mark a PR ready and re-run CI. It can't merge, close or delete anything.",
       allow: ["gh --version", "gh pr view", "gh pr checks", "gh pr diff", "gh pr status", "gh pr ready", "gh run list", "gh run view", "gh run rerun", "gh run watch"].flatMap((c) => [`Bash(${c}:*)`, `Bash(${c} *)`]),
-      note: "You may use gh to read pull requests and their checks, mark a draft ready, and re-run failed CI. You may not merge, close or delete; merging goes through the project's own merge rules.",
+      // No "you may not merge" here: a desk can also hold a merge grant, and the two notes contradicted each other
+      // (job 106c731059, 2026-11-19). Merging itself is still denied unless a merge grant allows it (mergeRules).
+      note: "You may use gh to read pull requests and their checks, mark a draft ready, and re-run failed CI. Never close or delete. Merging isn't part of this grant: it goes through the project's own merge rules.",
     },
     // the owner 2026-11-13: Nova's install of the Godot export templates (which the owner OK'd) was blocked because curl was
     // refused. Generic, not per tool: download files; what to install still needs the owner's yes.
@@ -114,6 +116,23 @@ export function grantCatalogue() {
       risk: "It can fetch files from the internet onto this PC. A downloaded program could do anything once run.",
       allow: ["curl", "wget"].flatMap(runRules),
       note: `You may download files with curl or wget, from the official site of what you're getting (its own website or GitHub releases), into ${toolPaths().downloadDir ? `your project or ${toolPaths().downloadDir}` : "your project"}. Installing or running a new program still needs ${hubSettings().owner.name}'s yes: ask first unless your job says they already said yes.`,
+    },
+    // the owner 2026-11-20 ("widen that a bit"): another project desks were refused git rebase --abort, git rm, git worktree
+    // remove and gh pr edit again and again (six jobs in a week), and handed those steps round or asked each time.
+    // Housekeeping in the worker's own repo; force pushes, hard resets, deleting branches and merging stay denied.
+    "repo-tidy": {
+      label: "Repo housekeeping",
+      about: "Tidy its own git repo: rebase (and abort or continue one), abort a merge, git rm, restore, stash, cherry-pick, revert, remove finished worktrees, and edit a PR's title, text or labels.",
+      risk: "It can rewrite its own local branches and remove worktrees. Force pushes, hard resets, deleting branches and merging stay refused.",
+      allow: [
+        "git rebase", "git merge --abort", "git rm", "git restore", "git stash push", "git stash list", "git stash apply", "git stash show",
+        "git cherry-pick", "git revert", "git worktree remove", "git worktree prune", "git mv",
+        // job 723510912a: another project lead was refused this in its board worktree (git switch --detach already worked)
+        "git checkout --detach",
+        "gh pr edit",
+      ].flatMap((c) => [`Bash(${c}:*)`, `Bash(${c} *)`]),
+      deny: ["git worktree remove --force", "git worktree remove -f", "git rebase --exec", "git rebase -x", "gh pr edit --base", "gh pr edit -B"].flatMap((c) => { const [head, flag] = [c.slice(0, c.lastIndexOf(" ")), c.slice(c.lastIndexOf(" ") + 1)]; return [`Bash(${c}:*)`, `Bash(${c} *)`, `Bash(${head} * ${flag})`, `Bash(${head} * ${flag} *)`]; }),
+      note: "You may tidy your own repo: git rebase (and --abort or --continue), git merge --abort, git rm, git mv, git restore, git stash push/list/show/apply, git cherry-pick, git revert, git worktree remove (never --force) and prune, git checkout --detach, and gh pr edit for a PR's title, text or labels (not its base branch). Force pushes, hard resets, deleting branches and merging are still refused. Say in your report what you tidied.",
     },
     web: {
       label: "Web search",
@@ -139,17 +158,70 @@ export function grantCatalogue() {
   }
   return built;
 }
+// ---------- single commands the owner approved in an ask (2026-11-20) ----------
+// "Let another project-pc-builder run 'git rebase --abort'? 1 = yes, 2 = no": the quoted command, once the owner says yes, is added
+// to that worker's own list (desk.allowed). Only plain commands: no shell operators, at most 8 words. Some are never
+// given this way (force pushes, hard resets, deleting, merging, interpreters and downloads, which can run anything):
+// those need a grant from the worker's card.
+const NEVER_BY_ASK = [
+  /^git push\b.*(\s-f\b|--force)/, /^git reset --hard\b/, /^git branch -D\b/, /^git push \S+ (--delete|:)/, /^git clean\b/,
+  /^git worktree remove\b.*(\s-f\b|--force)/, /^git rebase\b.*(--exec|\s-x\b)/,
+  /^gh (pr merge|pr close|api|repo delete|run delete|workflow run|release delete|secret|auth)\b/,
+  /^(rm|del|rmdir|sudo|su|chmod|chown|curl|wget|bash|sh|zsh|pwsh|powershell|cmd|node|npx|npm|python3?|py|pip|ruby|perl|deno|bun|eval|exec|ssh|scp|format|shutdown|reg|setx)\b/,
+];
+export function askedCommands(question) {
+  const q = String(question || "");
+  if (!/\b(run|use|allow|let)\b/i.test(q)) return [];
+  const out = [];
+  for (const m of q.matchAll(/['"`\u2018\u2019\u201c\u201d]([^'"`\u2018\u2019\u201c\u201d]{2,80})['"`\u2018\u2019\u201c\u201d]/g)) {
+    const cmd = m[1].trim().replace(/\s+/g, " ");
+    if (/^[a-z][\w.-]*( [\w@./:=+,-]+){0,7}$/i.test(cmd) && !/[;&|<>$\\()*?]/.test(cmd) && !out.includes(cmd)) out.push(cmd);
+  }
+  return out;
+}
+export const commandRefused = (cmd) => NEVER_BY_ASK.some((re) => re.test(cmd)) ? "it can't be given by an ask: give the worker the access on its card instead" : null;
+const commandRules = (cmd) => [`Bash(${cmd})`, `Bash(${cmd}:*)`, `Bash(${cmd} *)`];
+
 // The extra allow rules and brief lines for one worker's grants.
 export function grantRules(desk) {
   const cat = grantCatalogue(), ids = (Array.isArray(desk?.grants) ? desk.grants : []).filter((id) => cat[id]);
-  return { ids, allow: [...new Set(ids.flatMap((id) => cat[id].allow))], notes: ids.map((id) => cat[id].note).filter(Boolean) };
+  const asked = (Array.isArray(desk?.allowed) ? desk.allowed : []).map((a) => a?.cmd).filter((c) => c && !commandRefused(c) && !/,/.test(c));
+  const allow = [...new Set([...ids.flatMap((id) => cat[id].allow), ...asked.flatMap(commandRules)])], notes = ids.map((id) => cat[id].note).filter(Boolean);
+  if (asked.length) notes.push(`Commands ${hubSettings().owner.name} said yes to for you: ${asked.map((c) => `"${c}"`).join(", ")}. Run each as its own command, as written (more words after it are fine).`);
+  const deny = [...new Set(ids.flatMap((id) => cat[id].deny || []))];
+  if (allow.some((r) => MERGE_RULE.test(r))) notes.push(MERGE_NOTE);
+  return { ids, allow, deny, notes };
+}
+// Merging (job 106c731059, 2026-11-19: another project merge queue's grant allowed gh pr merge, but every session's
+// standard deny list also denied it, and a deny always wins). A worker whose grants allow gh pr merge may run exactly
+// "gh pr merge <N> --merge" (with or without --repo owner/name). Every other way of merging stays denied: squash,
+// rebase, admin, auto, deleting the branch, writing the commit text. Workers without such a grant are unchanged.
+const MERGE_RULE = /^Bash\(gh pr merge[ :]/;
+export const MERGE_ONLY = ["Bash(gh pr merge * --merge)", "Bash(gh pr merge * --merge --repo *)", "Bash(gh pr merge * --repo * --merge)"];
+const MERGE_FLAGS = ["--squash", "-s", "--rebase", "-r", "--admin", "--auto", "--disable-auto", "--delete-branch", "-d", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A", "--match-head-commit"];
+export const MERGE_DENIED = MERGE_FLAGS.flatMap((f) => [`Bash(gh pr merge * ${f})`, `Bash(gh pr merge * ${f} *)`, `Bash(gh pr merge * ${f}=*)`]);
+export const MERGE_NOTE = "Merge only with exactly: gh pr merge <number> --merge (you may add --repo owner/name). No other flags: squash, rebase, admin, auto and deleting the branch are refused. Run it as its own command.";
+// allow and deny lists for a session, given the worker's grant rules and the standard deny list.
+export function mergeRules(allow, denied) {
+  if (!allow.some((r) => MERGE_RULE.test(r))) return { allow, denied, merge: false };
+  return {
+    allow: [...allow.filter((r) => !MERGE_RULE.test(r)), ...MERGE_ONLY],
+    denied: [...denied.filter((r) => !MERGE_RULE.test(r)), ...MERGE_DENIED],
+    merge: true,
+  };
 }
 // For the pages: what can be granted (no rules, just what each one is).
 export const grantList = () => Object.entries(grantCatalogue()).map(([id, g]) => ({ id, label: g.label, about: g.about || "", risk: g.risk || "" }));
 // Who can do what a worker can't (the owner 2026-11-11: "make sure they know to reach out to someone that can, in proper
 // reporting"): the other workers that have been given access, as lines for a brief. Empty when nobody has any.
-export function whoCan(desks, exceptId) {
+// Order (the owner 2026-11-20: one worker, another project-pc-builder, got 29 jobs in two weeks because it led the list and had
+// the most access): the asking worker's own project first, then whoever has the fewest open jobs, then fewest grants
+// (keep the widest-access worker for what only it can do). waiting: { desk: open jobs } shows each worker's queue.
+export function whoCan(desks, exceptId, { room = null, waiting = null } = {}) {
   const cat = grantCatalogue();
-  return (desks || []).filter((d) => d.id !== exceptId && !d.paused && Array.isArray(d.grants) && d.grants.some((g) => cat[g]))
-    .map((d) => `${d.id} (${d.room}): ${d.grants.filter((g) => cat[g]).map((g) => cat[g].label).join(", ")}`);
+  const has = (d) => d.grants.filter((g) => cat[g]);
+  return (desks || []).filter((d) => d.id !== exceptId && !d.paused && d.status !== "retired" && Array.isArray(d.grants) && d.grants.some((g) => cat[g]))
+    .map((d, i) => ({ d, i, same: room && d.room === room ? 0 : 1, load: waiting?.[d.id] || 0, n: has(d).length }))
+    .sort((a, b) => a.same - b.same || a.load - b.load || a.n - b.n || a.i - b.i)
+    .map(({ d, load }) => `${d.id} (${d.room}${waiting ? `, ${load} waiting` : ""}): ${has(d).map((g) => cat[g].label).join(", ")}`);
 }

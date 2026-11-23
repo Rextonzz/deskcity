@@ -2,7 +2,7 @@
 // Split out of campus.html (2026-11-09) so each part stays small enough to work on safely.
 import { esc, api } from "/stats-lib.js";
 import { ago, ageText, money, spend } from "/fmt.js";
-import { confirmBox, safeUrl } from "/lib.js";
+import { confirmBox, safeUrl, approvalNote } from "/lib.js";
 window.esc = esc;
 window.safeUrl = safeUrl;
 window.ago = ago;
@@ -11,8 +11,9 @@ window.money = money;
 window.spend = spend;
 window.api = api;
 window.confirmBox = confirmBox;
+window.approvalNote = approvalNote;
 // blocks first: hub pages used inside the view (campus/blocks.js); its Esc must come before the others'
-const PARTS = ["/parts/registry.js", "blocks", "props", "core", "ambience", "draw", "/campus/model/homes.js", "/campus/model/belongings.js", "/campus/model/towers.js", "/campus/model/quad.js", "city", "people", "motion", "panels", "control", "cmdmatch", "command", "brain", "neural", "neuralweb", "neuraldive", "neuralreplay", "main"];
+const PARTS = ["/parts/registry.js", "blocks", "props", "core", "ambience", "draw", "/campus/model/homes.js", "/campus/model/belongings.js", "/campus/model/towers.js", "/campus/model/quad.js", "city", "people", "citylife", "citylife2", "motion", "panels", "fundpanel", "casinopanel", "control", "cmdmatch", "command", "brain", "neural", "neuralweb", "neuraldive", "neuralreplay", "main"];
 // Speed (2026-11-16): every file is asked for at once (a preload hint each, so they download in parallel and wait in the
 // browser's cache), but each one still RUNS only after the one before it has run, exactly as before: the ordering
 // guarantees above hold, and a part that doesn't load still stops the rest (the old onerror message).

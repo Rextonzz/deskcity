@@ -6,12 +6,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { config, isRealKey } from "../config.js";
 import { geminiRefusal } from "./refusal.js";
+import { fetchRetry } from "./fetch-retry.js";
 import { resolvePath, writeJsonAtomic, readJson, readJsonl, appendJsonl, loadPipelineConfig } from "./util.js";
 
 // A step's name can end in its channel's id ("plan-<channel>"); the totals by step leave that out.
-let channelEnd;
+let channelEnd, channelEndAt = 0;
 const dropChannel = (s) => {
-  if (channelEnd === undefined) {
+  if (channelEnd === undefined || Date.now() - channelEndAt > 60000) { // looked up again every minute, so a new channel is picked up
+    channelEndAt = Date.now();
     let ids = [];
     try { ids = Object.keys(loadPipelineConfig().channels || {}); } catch {}
     channelEnd = ids.length ? new RegExp(`-(${ids.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`) : null;
@@ -32,6 +34,11 @@ export const DEFAULTS = {
   // hr_review (2026-11-09) is the HR desk checking staff requests (hr.js): short structured answers, so Haiku.
   // Half-price batch mode for video jobs, only while the channel is covered (posted in 24h + one ready) (see worker.js batchReady).
   batch: { on: true },
+  // Cheaper hub-run desks (R&D outcome 1, 2026-11-23), both off until the owner turns them on in data/ai.json:
+  // cache: the desk's standing block (identity, role, room notes, hub rules, project pages) goes first in the system
+  //   prompt with an hour-long Claude cache mark, and the per-job part after it (Gemini caches the same prefix itself).
+  // batch: jobs that can wait (agents.js canWaitJob) go by Anthropic Message Batches or the Gemini Batch API at half price.
+  deskSavings: { cache: false, batch: false },
   shadow: {
     on: true,
     days: 7, // stops by itself this many days after the first test answer
@@ -60,6 +67,7 @@ export const PRICES = {
   "claude-haiku-5-5": { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125, over100k: { in: 0.5, out: 2.5, cacheRead: 0.05, cacheWrite: 0.625 } },
   "claude-opus-5": { in: 5, out: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-fable-5-1": { in: 10, out: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  "gemini-4-neon": { in: 3, out: 15, cacheRead: 0.15 }, // released 2026-11-18 (Google's list price)
   "gemini-4-argon": { in: 2, out: 10, cacheRead: 0.1 },
   "gemini-3.1-pro": { in: 2, out: 12, cacheRead: 0.2 },
   "gemini-2.5-pro": { in: 1.25, out: 10, cacheRead: 0.31 },
@@ -128,12 +136,13 @@ export function aiSettings() {
     prices: { ...saved.prices },
     steps: { ...DEFAULTS.steps, ...saved.steps },
     batch: { ...DEFAULTS.batch, ...saved.batch },
+    deskSavings: { ...DEFAULTS.deskSavings, ...saved.deskSavings },
     shadow: { ...DEFAULTS.shadow, ...saved.shadow, steps: { ...DEFAULTS.shadow.steps, ...saved.shadow?.steps } },
   };
 }
 export function saveAiSettings(patch) {
   const cur = aiSettings();
-  const next = { ...cur, ...patch, batch: { ...cur.batch, ...patch.batch }, shadow: { ...cur.shadow, ...patch.shadow } };
+  const next = { ...cur, ...patch, batch: { ...cur.batch, ...patch.batch }, deskSavings: { ...cur.deskSavings, ...patch.deskSavings }, shadow: { ...cur.shadow, ...patch.shadow } };
   writeJsonAtomic(FILE(), next);
   return next;
 }
@@ -147,7 +156,7 @@ export const CLAUDE = { haiku: "claude-haiku-5-5", sonnet: "claude-sonnet-5-5", 
 let geminiList = null;
 async function geminiModels() {
   if (geminiList && Date.now() - geminiList.at < 864e5) return geminiList.names;
-  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", { headers: { "x-goog-api-key": config.geminiApiKey }, signal: AbortSignal.timeout(15000) });
+  const res = await fetchRetry("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", { headers: { "x-goog-api-key": config.geminiApiKey }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Gemini model list answered ${res.status}`);
   const names = ((await res.json()).models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
   geminiList = { at: Date.now(), names };
@@ -198,26 +207,71 @@ export function geminiThinking(model, effort) {
   return null;
 }
 
-export async function askGemini({ model, system, content, schema, effort }, retry = false) {
+// search: Google Search grounding (the model searches when it needs to; billed per search query it runs). Gemini skips
+// the search when the reply must match a JSON schema (checked 2026-11-20), so a search call answers in text with the
+// JSON in it; if that text doesn't parse, one more call without search turns it into the schema's JSON.
+// The Gemini Batch API (half price; Google aims for under a day), one request inline: sends it, waits, and answers like a
+// fetch Response holding the one generateContent reply, so askGemini reads it the same way. REST, as the rest of this
+// file (the @google/genai SDK isn't a dependency). GEMINI_BATCH_POLL_MS shortens the wait in tests.
+export async function viaGeminiBatch(model, request) {
+  const base = "https://generativelanguage.googleapis.com/v1beta", headers = { "x-goog-api-key": config.geminiApiKey, "Content-Type": "application/json" };
+  const res = await fetch(`${base}/models/${encodeURIComponent(model)}:batchGenerateContent`, {
+    method: "POST", headers, signal: AbortSignal.timeout(60000),
+    body: JSON.stringify({ batch: { displayName: "hub-desk-job", inputConfig: { requests: { requests: [{ request, metadata: { key: "1" } }] } } } }),
+  });
+  const created = await res.json().catch(() => ({}));
+  if (!res.ok || !created.name) return { ok: false, status: res.status, json: async () => created };
+  const poll = Number(process.env.GEMINI_BATCH_POLL_MS) || 30000, until = Date.now() + 24 * 3600e3;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, poll));
+    const b = await fetch(`${base}/${created.name}`, { headers, signal: AbortSignal.timeout(60000) }).then((r) => r.json()).catch(() => ({}));
+    const state = String(b.metadata?.state || b.state || "");
+    if (b.done || /SUCCEEDED|FAILED|CANCELLED|EXPIRED/.test(state)) {
+      if (!/SUCCEEDED/.test(state) && b.error) throw new Error(`The Gemini batch ${state || "failed"}: ${b.error.message || "no detail"}`);
+      const items = b.response?.inlinedResponses?.inlinedResponses || b.response?.inlinedResponses || [];
+      const one = items[0];
+      if (!one) throw new Error(`The Gemini batch came back empty (${state || "no state"}).`);
+      if (one.error) return { ok: false, status: one.error.code || 500, json: async () => ({ error: one.error }) };
+      return { ok: true, status: 200, json: async () => one.response };
+    }
+    if (Date.now() > until) throw new Error("The Gemini batch didn't finish within a day.");
+  }
+}
+
+export async function askGemini({ model, system, content, schema, effort, search = 0, batch = false }, retry = false) {
+  if (search) batch = false; // a search call is two steps (see above): it stays live
+  if (search) {
+    const sys = `${system}\n\nSearch the web where it helps. Then reply with only a JSON object (no code fences, no other text) matching this JSON schema:\n${JSON.stringify(schema)}`;
+    const first = await askGemini({ model, system: sys, content, schema: null, effort }, retry);
+    if (first.answer !== undefined) return first;
+    const second = await askGemini({ model, system: "Turn the text into JSON matching the schema. Keep every fact and link; add nothing.", content: first.text, schema, effort: "low" }, retry);
+    const add = (k) => (first.usage[k] || 0) + (second.usage[k] || 0);
+    return { ...second, usage: { inputTokens: add("inputTokens"), outputTokens: add("outputTokens"), cacheReadTokens: add("cacheReadTokens") }, ms: first.ms + second.ms, searches: first.searches };
+  }
   const blocks = typeof content === "string" ? [{ type: "text", text: content }] : content;
   // { type: "youtube", url } lets Gemini watch a public YouTube video itself (Gemini reads YouTube links natively).
-  const parts = blocks.map((b) => (b.type === "image" || b.type === "audio" ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } } : b.type === "youtube" ? { fileData: { fileUri: b.url } } : { text: b.text }));
+  // { type: "video", source: { media_type, data } }: a short video sent inline (the Neon check, 2026-11-20; keep it small,
+  // the whole request must stay under about 20 MB).
+  const parts = blocks.map((b) => (b.type === "image" || b.type === "audio" || b.type === "video" ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } } : b.type === "youtube" ? { fileData: { fileUri: b.url } } : { text: b.text }));
   const started = Date.now();
+  const body = (thinkingConfig) => ({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts }],
+    ...(schema ? {} : { tools: [{ googleSearch: {} }] }), // schema null: the search pass (see above)
+    generationConfig: {
+      ...(schema ? { responseMimeType: "application/json", responseJsonSchema: schema } : {}),
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+    },
+  });
   const call = (thinkingConfig) =>
-    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "x-goog-api-key": config.geminiApiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseJsonSchema: schema,
-          ...(thinkingConfig ? { thinkingConfig } : {}),
-        },
-      }),
-      signal: AbortSignal.timeout(10 * 60000),
-    });
+    batch
+      ? viaGeminiBatch(model, body(thinkingConfig))
+      : fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: "POST",
+          headers: { "x-goog-api-key": config.geminiApiKey, "Content-Type": "application/json" },
+          body: JSON.stringify(body(thinkingConfig)),
+          signal: AbortSignal.timeout(10 * 60000),
+        });
   const thinking = geminiThinking(model, effort);
   let res = await call(thinking);
   let j = await res.json().catch(() => ({}));
@@ -238,15 +292,24 @@ export async function askGemini({ model, system, content, schema, effort }, retr
   if (!cand || cand.finishReason === "SAFETY") throw new Error(`Gemini returned no answer (${cand?.finishReason || j.promptFeedback?.blockReason || "empty"})`);
   const text = (cand.content?.parts || []).filter((p) => p.text && !p.thought).map((p) => p.text).join("");
   const u = j.usageMetadata || {};
+  // the search pass (no schema): the JSON if the text holds one, else undefined and the text for the second call
+  let answer;
+  if (schema) answer = JSON.parse(text);
+  else { const m = text.replace(/^```(?:json)?\s*|\s*```$/g, "").match(/\{[\s\S]*\}/); try { answer = m ? JSON.parse(m[0]) : undefined; } catch { answer = undefined; } }
   return {
-    answer: JSON.parse(text),
+    answer,
+    text,
+    ...(batch ? { batch: true } : {}),
     usage: {
-      inputTokens: u.promptTokenCount,
+      // Google's promptTokenCount includes the cached tokens; they're counted once, at the cache price (they used to be
+      // booked at the full input price and the cache price both).
+      inputTokens: Math.max(0, (u.promptTokenCount || 0) - (u.cachedContentTokenCount || 0)),
       outputTokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0),
       cacheReadTokens: u.cachedContentTokenCount || 0,
     },
     ms: Date.now() - started,
     model: j.modelVersion || model,
+    searches: (cand.groundingMetadata?.webSearchQueries || []).length,
   };
 }
 

@@ -81,6 +81,7 @@ export function dashboardLink(page, s = notifySettings()) {
   return s.dashboardUrl ? s.dashboardUrl.replace(/\/$/, "") + page : undefined;
 }
 
+/** @param {{ title?: string, message: string, tags?: string[], priority?: number, url?: string, kind?: string }} a */
 export async function sendAlert({ title, message, tags = [], priority = 3, url, kind }) {
   const s = notifySettings();
   if (kind) {
